@@ -1,0 +1,182 @@
+import { randomUUID } from 'crypto'
+import { existsSync } from 'fs'
+import { join } from 'path'
+import { tool } from 'ai'
+import { z } from 'zod'
+import type { Skill, SkillContext } from '../../types.js'
+import type { Content, Post } from '../../../types.js'
+
+const skill: Skill = {
+  name: 'publisher',
+  description: 'Publishes content to the configured platform',
+  category: 'pipeline',
+
+  async init(ctx: SkillContext) {
+    function savePost(post: Post): void {
+      ctx.db.run(
+        `INSERT INTO posts (id, platform_id, content_id, text, image_url, video_url, article_url, reference_id, type, signature, signer_address, posted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [post.id, post.platformId, post.contentId ?? null, post.text, post.imageUrl ?? null, post.videoUrl ?? null, post.articleUrl ?? null, post.referenceId ?? null, post.type, post.signature ?? null, post.signerAddress ?? null, post.postedAt],
+      )
+    }
+
+    return {
+      publish_image: tool({
+        description: 'Publish image content with caption to the platform.',
+        inputSchema: z.object({
+          type: z.enum(['flagship', 'quickhit', 'paid']).default('flagship'),
+        }),
+        execute: async ({ type }) => {
+          if (!ctx.platform) return { error: 'No platform configured.' }
+
+          const concept = ctx.state.bestConcept
+          const caption = ctx.state.review?.caption ?? ctx.state.caption
+          const imagePath = ctx.state.imagePaths[0]
+
+          if (!concept || !caption || !imagePath) {
+            return { error: 'Missing concept, caption, or image for publishing.' }
+          }
+
+          ctx.events.transition('publishing')
+
+          let signature: string | undefined
+          let signerAddress: string | undefined
+          if (ctx.signer) {
+            signature = await ctx.signer.sign(caption)
+            signerAddress = ctx.signer.address
+          }
+
+          const referenceId = await ctx.platform.findReference?.(concept.visual)
+
+          const result = await ctx.platform.publish({
+            text: caption,
+            imagePath,
+            referenceId,
+            contentType: 'image',
+          })
+
+          const critique = ctx.state.critique ?? {
+            conceptId: concept.id, quality: 7, clarity: 7,
+            shareability: 7, execution: 7, overallScore: 7, critique: 'Auto',
+          }
+
+          const content: Content = {
+            id: randomUUID(),
+            conceptId: concept.id,
+            topicId: concept.topicId,
+            type,
+            concept,
+            prompt: ctx.state.imagePrompt ?? '',
+            variants: ctx.state.imagePaths,
+            selectedVariant: 0,
+            critique,
+            caption,
+            createdAt: Date.now(),
+          }
+
+          const post: Post = {
+            id: randomUUID(),
+            platformId: result.platformId,
+            contentId: content.id,
+            text: caption,
+            imageUrl: imagePath,
+            referenceId,
+            type,
+            signature,
+            signerAddress,
+            postedAt: Date.now(),
+            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
+          }
+
+          ctx.state.allContent.push(content)
+          ctx.state.allPosts.push(post)
+          savePost(post)
+
+          ctx.events.emit({ type: 'post', platformId: result.platformId, text: caption, imageUrl: imagePath, ts: Date.now() })
+          ctx.events.monologue(`Published ${type}: "${caption}"`)
+
+          return { platformId: result.platformId, url: result.url, type }
+        },
+      }),
+
+      publish_article: tool({
+        description: 'Publish an article to the platform. If the platform account is not set up yet, this will fail and you should call setup_substack_account first.',
+        inputSchema: z.object({}),
+        execute: async () => {
+          if (!ctx.platform) return { error: 'No platform configured.' }
+
+          // Check if platform account exists (for Substack)
+          const accountFile = join(ctx.dataDir, 'substack-account.json')
+          if (ctx.config.platform === 'substack' && !existsSync(accountFile)) {
+            return { error: 'Substack account not set up yet. Call setup_substack_account first to create your account and publication, then try publishing again.' }
+          }
+
+          const article = ctx.state.article
+          const concept = ctx.state.bestConcept
+
+          if (!article || !concept) {
+            return { error: 'Missing article or concept for publishing.' }
+          }
+
+          ctx.events.transition('publishing')
+
+          // Include header image if one was generated
+          const headerImage = ctx.state.imagePaths.length > 0 ? ctx.state.imagePaths[0] : undefined
+
+          let result
+          try {
+            result = await ctx.platform.publish({
+              text: article.body,
+              imagePath: headerImage,
+              contentType: 'article',
+              metadata: { title: article.title, subtitle: article.subtitle },
+            })
+          } catch (err: any) {
+            return { error: `Publishing failed: ${err.message}. You may need to log in first — try calling setup_substack_account or check_substack_account.` }
+          }
+
+          // Record as content too so dedupe/editor can see article topics in this runtime.
+          const critique = ctx.state.critique ?? {
+            conceptId: concept.id, quality: 7, clarity: 7,
+            shareability: 7, execution: 7, overallScore: 7, critique: 'Auto',
+          }
+          const content: Content = {
+            id: randomUUID(),
+            conceptId: concept.id,
+            topicId: concept.topicId,
+            type: 'article',
+            concept,
+            prompt: ctx.state.imagePrompt ?? '',
+            variants: ctx.state.imagePaths,
+            selectedVariant: 0,
+            critique,
+            caption: article.title,
+            createdAt: Date.now(),
+          }
+
+          const post: Post = {
+            id: randomUUID(),
+            platformId: result.platformId,
+            contentId: concept.id,
+            text: article.title,
+            articleUrl: result.url,
+            type: 'article',
+            postedAt: Date.now(),
+            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
+          }
+
+          ctx.state.allContent.push(content)
+          ctx.state.allPosts.push(post)
+          savePost(post)
+
+          ctx.events.emit({ type: 'post', platformId: result.platformId, text: article.title, ts: Date.now() })
+          ctx.events.monologue(`Article published: "${article.title}"`)
+
+          return { platformId: result.platformId, url: result.url, title: article.title }
+        },
+      }),
+    }
+  },
+}
+
+export default skill
