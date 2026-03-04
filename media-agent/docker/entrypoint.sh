@@ -132,5 +132,19 @@ if [ "${ENABLE_VIEWER:-0}" = "1" ]; then
     echo "viewer: http://0.0.0.0:6080/vnc.html"
 fi
 
+# ── Agent files from env vars (coordinator injection) ─────────────────────
+if [ -n "$SOUL_MD_B64" ]; then
+  echo "$SOUL_MD_B64" | base64 -d > /app/SOUL.md
+  echo "Injected SOUL.md from env"
+fi
+if [ -n "$PROCESS_MD_B64" ]; then
+  echo "$PROCESS_MD_B64" | base64 -d > /app/PROCESS.md
+  echo "Injected PROCESS.md from env"
+fi
+if [ -n "$CONSTITUTION_MD_B64" ]; then
+  echo "$CONSTITUTION_MD_B64" | base64 -d > /app/constitution.md
+  echo "Injected constitution.md from env"
+fi
+
 # ── Start the agent ───────────────────────────────────────────────────────
 exec bun src/main.ts
