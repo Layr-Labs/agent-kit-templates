@@ -1,10 +1,11 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import { readFile } from 'fs/promises'
 import type { ContentConcept, Content, Post, AgentIdentity } from '../types.js'
 import { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import { buildPersonaPrompt } from '../prompts/identity.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const editorSchema = z.object({
   approved: z.boolean(),
@@ -99,7 +100,9 @@ Be HARSH. Better to reject mediocre content than publish something that dilutes 
 
     content.push({ type: 'text', text: textPrompt })
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'editorial_review',
+      modelId: this.config.modelId('editing'),
       model: this.config.model('editing'),
       output: Output.object({ schema: editorSchema }),
       system: this.editorPrompt,

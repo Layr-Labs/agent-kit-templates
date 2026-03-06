@@ -1,10 +1,11 @@
-import { generateText, stepCountIs } from 'ai'
+import { stepCountIs } from 'ai'
 import type { AgentIdentity } from '../types.js'
 import type { Config } from '../config/index.js'
 import { ProcessExecutor } from '../process/executor.js'
 import { EventBus } from '../console/events.js'
 import { SkillRegistry } from '../skills/registry.js'
 import { buildPersonaPrompt } from '../prompts/identity.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -52,7 +53,9 @@ export class AgentLoop {
     const toolNames = Object.keys(tools)
 
     try {
-      const { text, steps } = await generateText({
+      const { text, steps } = await generateTrackedText({
+        operation: 'agent_action',
+        modelId: this.config.modelId('engagement'),
         model: this.config.model('engagement'),
         tools,
         stopWhen: stepCountIs(15),
@@ -74,7 +77,7 @@ If there's nothing to do, respond briefly with your current status. Do NOT use t
         },
       })
 
-      const toolCalls = steps.flatMap(s => s.toolCalls ?? [])
+      const toolCalls = steps.flatMap((s: any) => s.toolCalls ?? [])
       if (toolCalls.length > 0) {
         for (const call of toolCalls) {
           this.events.emit({
@@ -84,7 +87,7 @@ If there's nothing to do, respond briefly with your current status. Do NOT use t
             ts: Date.now(),
           })
         }
-        this.events.monologue(`Agent used ${toolCalls.length} tool(s): ${toolCalls.map(c => c.toolName).join(', ')}`)
+        this.events.monologue(`Agent used ${toolCalls.length} tool(s): ${toolCalls.map((c: any) => c.toolName).join(', ')}`)
       }
 
       if (text && text.length > 0) {

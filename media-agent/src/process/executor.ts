@@ -1,4 +1,4 @@
-import { generateText, stepCountIs } from 'ai'
+import { stepCountIs } from 'ai'
 import type { ProcessPlan, ProcessWorkflow, BackgroundTask, Trigger } from './types.js'
 import type { PipelineState } from './state.js'
 import { resetWorkflowState } from './state.js'
@@ -8,6 +8,7 @@ import type { Config } from '../config/index.js'
 import { JsonStore } from '../store/json-store.js'
 import { buildPersonaPrompt } from '../prompts/identity.js'
 import type { AgentIdentity } from '../types.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 type TimerState = Record<string, number>
 
@@ -118,7 +119,9 @@ export class ProcessExecutor {
     resetWorkflowState(this.state)
 
     try {
-      const { text, steps } = await generateText({
+      const { text, steps } = await generateTrackedText({
+        operation: `workflow:${workflow.name}`,
+        modelId: this.config.modelId('ideation'),
         model: this.config.model('ideation'),
         tools: this.skills.tools,
         stopWhen: stepCountIs(120),
@@ -150,8 +153,8 @@ Think out loud about what you're doing — your thoughts are broadcast live to y
         },
       })
 
-      const toolCalls = steps.flatMap(s => s.toolCalls ?? [])
-      this.events.monologue(`Workflow "${workflow.name}" completed. Used ${toolCalls.length} tool(s): ${toolCalls.map(c => c.toolName).join(', ')}`)
+      const toolCalls = steps.flatMap((s: any) => s.toolCalls ?? [])
+      this.events.monologue(`Workflow "${workflow.name}" completed. Used ${toolCalls.length} tool(s): ${toolCalls.map((c: any) => c.toolName).join(', ')}`)
 
       if (text) {
         this.events.monologue(text.slice(0, 300))

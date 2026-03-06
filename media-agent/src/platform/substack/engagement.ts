@@ -1,10 +1,11 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { gateway } from 'ai'
 import { z } from 'zod'
 import type { SubstackClient } from './client.js'
 import { EventBus } from '../../console/events.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import type { AgentIdentity } from '../../types.js'
+import { generateTrackedText } from '../../ai/tracking.js'
 
 const replyDecisionSchema = z.object({
   replies: z.array(z.object({
@@ -46,7 +47,9 @@ export class SubstackEngagement {
 
     this.events.monologue(`${comments.length} comments to review...`)
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'substack_reply_selection',
+      modelId: this.model,
       model: gateway(this.model),
       output: Output.object({ schema: replyDecisionSchema }),
       system: `${this.personaPrompt}\n\nYou are reviewing reader comments on your Substack newsletter. Decide which comments deserve a reply. Reply to comments that are thoughtful, ask genuine questions, or offer interesting perspectives. Skip spam, generic praise, or comments that don't warrant engagement. Keep replies conversational and in your authentic voice.`,

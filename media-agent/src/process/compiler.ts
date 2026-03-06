@@ -1,9 +1,10 @@
 import { createHash } from 'crypto'
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import { JsonStore } from '../store/json-store.js'
 import type { Config } from '../config/index.js'
 import type { CompiledAgent } from './types.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const compiledAgentSchema = z.object({
   identity: z.object({
@@ -89,7 +90,9 @@ export class AgentCompiler {
 
     console.log('Compiling agent from SOUL.md + PROCESS.md + constitution.md...')
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'compile_agent',
+      modelId: this.config.modelId('compilation'),
       model: this.config.model('compilation'),
       output: Output.object({ schema: compiledAgentSchema }),
       system: COMPILER_SYSTEM_PROMPT(availableSkills),

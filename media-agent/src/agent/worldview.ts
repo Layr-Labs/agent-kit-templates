@@ -1,10 +1,11 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import { JsonStore } from '../store/json-store.js'
 import { EventBus } from '../console/events.js'
 import type { AgentIdentity, Worldview } from '../types.js'
 import type { Config } from '../config/index.js'
 import { buildPersonaPrompt } from '../prompts/identity.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const reflectionSchema = z.object({
   beliefs: z.array(z.string()).describe('Updated beliefs (5-7 items). Change sparingly.'),
@@ -94,7 +95,9 @@ Guidelines:
     const wv = this.get()
     this.events.monologue('Time to reflect on my recent work...')
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'worldview_reflection',
+      modelId: this.config.modelId('reflection'),
       model: this.config.model('reflection'),
       output: Output.object({ schema: reflectionSchema }),
       system: this.reflectionPrompt,

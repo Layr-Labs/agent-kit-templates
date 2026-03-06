@@ -8,6 +8,7 @@ import type { Database } from '../db/index.js'
 import { registerConsoleRoutes } from '../console/stream.js'
 import type { AgentIdentity } from '../types.js'
 import { handleUpgradeConsent } from '../upgrade/consent.js'
+import { getCostTracker } from '../ai/tracking.js'
 
 export async function createServer(opts: {
   events: EventBus
@@ -55,6 +56,14 @@ export async function createServer(opts: {
   app.get('/api/wallets', async () => {
     if (!wallets) return { evm: null, solana: null }
     return wallets
+  })
+
+  // Cost tracking
+  app.get('/api/costs', async (req) => {
+    const limit = Number((req.query as any).limit) || 50
+    const tracker = getCostTracker()
+    if (!tracker) return { enabled: false, reason: 'Cost tracker not initialized.' }
+    return { enabled: true, ...tracker.getSummary(limit) }
   })
 
   // Coordinator -> agent constitutional consent gate

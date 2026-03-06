@@ -1,4 +1,4 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
 import type { Signal, Topic, AgentIdentity } from '../types.js'
@@ -8,6 +8,7 @@ import type { Config } from '../config/index.js'
 import { buildScoringPrompt } from '../prompts/scoring.js'
 import { buildSafetyPrompt } from '../prompts/safety.js'
 import { buildMonologuePrompt } from '../prompts/monologue.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const batchScoreSchema = z.object({
   topics: z.array(
@@ -84,7 +85,9 @@ export class Scorer {
       ? `\n\n===== DO NOT REPEAT — ALREADY COVERED =====\n${recentTopicSummaries.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n===== END BLACKLIST =====`
       : ''
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'score_signals',
+      modelId: this.config.modelId('scoring'),
       model: this.config.model('scoring'),
       output: Output.object({ schema: batchScoreSchema }),
       system: `${this.monologuePrompt}\n\n${this.scoringPrompt}\n\n${this.safetyPrompt}\n\nYou are evaluating a batch of signals. Group related signals into topics, then score each topic. Return at most 10 topics, ranked by content potential. For each topic, list which signal indices it covers. Also perform a safety check inline.`,
@@ -106,7 +109,7 @@ export class Scorer {
         continue
       }
 
-      const validIndices = scored.signalIndices.filter(i => i >= 0 && i < capped.length)
+      const validIndices = scored.signalIndices.filter((i: number) => i >= 0 && i < capped.length)
 
       const composite =
         scored.virality * 0.15 +
@@ -127,7 +130,7 @@ export class Scorer {
 
       const topic: Topic = {
         id: randomUUID(),
-        signals: validIndices.map(i => capped[i].id),
+        signals: validIndices.map((i: number) => capped[i].id),
         summary: scored.summary,
         scores: {
           virality: scored.virality,

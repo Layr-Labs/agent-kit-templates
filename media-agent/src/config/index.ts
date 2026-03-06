@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { parse } from 'smol-toml'
 import { resolve } from 'path'
-import { resolveModel, type ModelTask } from './models.js'
+import { resolveModel, resolveModelId, type ModelTask } from './models.js'
 
 interface TomlConfig {
   models: Record<string, string> & { overrides?: Record<string, string>; reasoning_effort?: string }
@@ -51,6 +51,7 @@ export function createConfig(configPath?: string) {
     port: Number(process.env.PORT || 3000),
 
     model: (task: ModelTask): any => resolveModel(toml.models, task),
+    modelId: (task: ModelTask): string => resolveModelId(toml.models, task),
     reasoningEffort: toml.models.reasoning_effort as string | undefined,
 
     // Twitter (optional — only used when PLATFORM=twitter)

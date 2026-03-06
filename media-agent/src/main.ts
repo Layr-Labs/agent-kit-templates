@@ -114,6 +114,7 @@ async function main() {
   const db = await createDatabase(join(config.dataDir, 'agent.db'))
   const events = new EventBus(join(config.dataDir, 'events.jsonl'))
   await events.init()
+  await initCostTracker(config.dataDir, events)
 
   const signalCache = new Cache<any>('signals', 200, join(config.dataDir, 'cache-signals.json'))
   const evalCache = new Cache('eval', config.cache.maxEntries, join(config.dataDir, 'cache-eval.json'))

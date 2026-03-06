@@ -1,4 +1,4 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
 import type { Topic, ContentConcept, ConceptCritique, AgentIdentity } from '../types.js'
@@ -8,6 +8,7 @@ import { buildIdeationPrompt } from '../prompts/ideation.js'
 import { buildCritiquePrompt } from '../prompts/critique.js'
 import { buildMonologuePrompt } from '../prompts/monologue.js'
 import type { WorldviewStore } from '../agent/worldview.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const conceptsSchema = z.object({
   concepts: z.array(
@@ -61,7 +62,9 @@ export class Ideator {
       pastWorkContext = `\n\n===== PAST WORK (DO NOT repeat these angles) =====\n${recentPosts.map((p, i) => `${i + 1}. ${p.slice(0, 200)}`).join('\n')}\n===== END =====`
     }
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'generate_concepts',
+      modelId: this.config.modelId('ideation'),
       model: this.config.model('ideation'),
       output: Output.object({ schema: conceptsSchema }),
       system: `${this.monologuePrompt}\n\n${this.ideationPrompt}`,
@@ -69,7 +72,7 @@ export class Ideator {
     })
     if (!object) throw new Error('Failed to generate concepts')
 
-    const concepts: ContentConcept[] = object.concepts.map(c => ({
+    const concepts: ContentConcept[] = object.concepts.map((c: any) => ({
       id: randomUUID(),
       topicId: topic.id,
       ...c,
@@ -96,7 +99,9 @@ export class Ideator {
     this.events.transition('critiquing')
     this.events.monologue(`${concepts.length} concepts on the table. Let me be honest about which one works...`)
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'critique_concepts',
+      modelId: this.config.modelId('ideation'),
       model: this.config.model('ideation'),
       output: Output.object({ schema: critiqueSchema }),
       system: `${this.monologuePrompt}\n\n${this.critiquePrompt}`,
@@ -104,7 +109,7 @@ export class Ideator {
     })
     if (!object) throw new Error('Failed to generate critique')
 
-    const scored = object.critiques.map(crit => ({
+    const scored = object.critiques.map((crit: any) => ({
       ...crit,
       overallScore: (crit.quality + crit.clarity + crit.shareability + crit.execution) / 4,
     }))
@@ -113,7 +118,7 @@ export class Ideator {
       crit.index = Math.max(0, Math.min(crit.index, concepts.length - 1))
     }
 
-    scored.sort((a, b) => b.overallScore - a.overallScore)
+    scored.sort((a: any, b: any) => b.overallScore - a.overallScore)
     const winner = scored[0]
     const bestConcept = concepts[winner.index]
 

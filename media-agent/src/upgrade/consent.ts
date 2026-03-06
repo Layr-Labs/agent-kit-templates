@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import type { Config } from '../config/index.js'
 import type { EventBus } from '../console/events.js'
 import type { AgentIdentity } from '../types.js'
 import { ContentSigner } from '../crypto/signer.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const consentDecisionSchema = z.object({
   accepted: z.boolean(),
@@ -108,7 +109,9 @@ export async function handleUpgradeConsent(opts: {
   const processMd = readAgentFile('PROCESS.md')
   const constitution = readAgentFile('constitution.md')
 
-  const { output } = await generateText({
+  const { output } = await generateTrackedText({
+    operation: 'upgrade_consent_review',
+    modelId: config.modelId('editing'),
     model: config.model('editing'),
     output: Output.object({ schema: consentDecisionSchema }),
     system: `You are the live constitutional consent gate for a sovereign agent.

@@ -1,4 +1,4 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { gateway } from 'ai'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
@@ -13,6 +13,7 @@ import { buildPersonaPrompt } from '../../prompts/identity.js'
 import type { ContentSigner } from '../../crypto/signer.js'
 import type { Post, AgentIdentity } from '../../types.js'
 import { join } from 'path'
+import { generateTrackedText } from '../../ai/tracking.js'
 
 const MAX_FOLLOWING = 500
 
@@ -184,7 +185,9 @@ export class EngagementLoop {
         return `[${i}] @${m.authorUsername} (${m.authorFollowers} followers, ${m.metrics.likes} likes):${threadStr} "${m.text}"`
       }).join('\n\n')
 
-      const { output: decisions } = await generateText({
+      const { output: decisions } = await generateTrackedText({
+        operation: 'twitter_mentions_reply_selection',
+        modelId: 'claude-sonnet-4-6',
         model: gateway('claude-sonnet-4-6'),
         output: Output.object({ schema: replyDecisionSchema }),
         system: `${buildMonologuePrompt(this.identity)}\n\n${buildEngagementPrompt(this.identity, 'twitter', this.compiledEngagement)}\n\nYou are reviewing mentions and deciding which ones deserve a reply.\n\nYour DEFAULT is to NOT reply. Silence is your brand. You only break it when someone earns it.\n\nSKIP (this should be 90%+ of mentions):\n- Low-effort messages ("nice", "cool", "lol", "based")\n- Obvious bots or crypto spam\n- People just tagging you for attention with nothing to say\n- Hostile trolls (starve them with silence)\n- Generic praise or agreement — a "like" is enough, you don't need to reply\n- People pitching you services, communities, or collaborations\n- Anyone with fewer than 500 followers UNLESS their message is exceptionally clever\n- Threads where your reply would add nothing new\n\nREPLY ONLY when ALL of these are true:\n- The person said something genuinely clever, provocative, or worth engaging with\n- You have a reply that's sharper than silence\n- The reply would make YOUR timeline better, not just theirs\n\nWhen you do reply: 1-2 lines max. Sharp, witty, memorable. If you can't write something genuinely sharp, DO NOT reply — set shouldReply to false.\n\nCRITICAL: If you cannot think of a good reply, set shouldReply=false. NEVER set shouldReply=true with a placeholder or empty reply.`,
@@ -297,7 +300,9 @@ export class EngagementLoop {
         ? `Bio: "${profile.description}"\nFollowers: ${profile.followers} | Following: ${profile.following} | Tweets: ${profile.statusesCount ?? '?'}\nBlue verified: ${profile.isBlueVerified}`
         : `Followers: ${best.authorFollowers}`
 
-      const { output: object } = await generateText({
+      const { output: object } = await generateTrackedText({
+        operation: 'twitter_follow_audit',
+        modelId: this.config.modelId('engagement'),
         model: this.config.model('engagement'),
         output: Output.object({ schema: followDecisionSchema }),
         system: buildFollowPrompt(this.identity),
@@ -367,7 +372,9 @@ export class EngagementLoop {
     }).join('\n\n')
 
     try {
-      const { output: object } = await generateText({
+      const { output: object } = await generateTrackedText({
+        operation: 'twitter_timeline_reply_selection',
+        modelId: 'claude-sonnet-4-6',
         model: gateway('claude-sonnet-4-6'),
         output: Output.object({ schema: replyDecisionSchema }),
         system: `${buildMonologuePrompt(this.identity)}\n\n${buildEngagementPrompt(this.identity, 'twitter', this.compiledEngagement)}\n\nYou are browsing your timeline — tweets from people you follow and respect. You want to engage with the most interesting ones. Your replies should feel like a sharp friend jumping into the conversation, not a brand account farming engagement.\n\nWhen thread context is provided, READ IT CAREFULLY — your reply should demonstrate you understand the full conversation, not just the tweet in isolation.\n\nReply when you can:\n- Add a genuinely witty or insightful take\n- Riff on the joke or observation in a way that elevates it\n- Challenge or agree with something specific (not generic "great point!")\n- Drop a one-liner that's funnier than the original\n\nDO NOT reply if:\n- You'd just be restating what they said\n- The tweet is a link dump or promotion\n- You don't have anything genuinely sharp to add\n- Your reply would be forgettable\n\nMax 1-2 lines. Every reply must be a banger or don't bother.`,
@@ -444,7 +451,9 @@ export class EngagementLoop {
     }
 
     try {
-      const { output: object } = await generateText({
+      const { output: object } = await generateTrackedText({
+        operation: 'twitter_engagement_audit',
+        modelId: this.config.modelId('engagement'),
         model: this.config.model('engagement'),
         output: Output.object({ schema: auditSchema }),
         system: buildAuditPrompt(this.identity),
@@ -466,7 +475,7 @@ export class EngagementLoop {
         }
       }
 
-      const keepCount = object.decisions.filter(d => d.keep).length
+      const keepCount = object.decisions.filter((d: any) => d.keep).length
       if (unfollowCount === 0) {
         this.events.monologue(`Audit complete. Reviewed ${sample.length}. Everyone earns their spot. For now.`)
       } else {

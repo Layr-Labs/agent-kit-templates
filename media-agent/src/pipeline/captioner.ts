@@ -1,10 +1,11 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import type { ContentConcept, AgentIdentity } from '../types.js'
 import { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import { buildCaptionPrompt } from '../prompts/caption.js'
 import { buildMonologuePrompt } from '../prompts/monologue.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const captionsSchema = z.object({
   captions: z.array(
@@ -39,7 +40,9 @@ export class Captioner {
       pastCaptionsContext = `\n\n===== CAPTIONS ALREADY USED (DO NOT reuse) =====\n${recentCaptions.map((c, i) => `${i + 1}. "${c}"`).join('\n')}\n===== END =====`
     }
 
-    const { output: object } = await generateText({
+    const { output: object } = await generateTrackedText({
+      operation: 'write_caption',
+      modelId: this.config.modelId('caption'),
       model: this.config.model('caption'),
       output: Output.object({ schema: captionsSchema }),
       system: `${this.monologuePrompt}\n\n${this.captionPrompt}`,
@@ -50,7 +53,7 @@ export class Captioner {
     const best = object.captions[object.bestIndex]
 
     this.events.monologue(
-      `Candidates:\n${object.captions.map((c, i) => `  ${i === object.bestIndex ? '>' : ' '} "${c.text}" (${c.angle})`).join('\n')}\n\nGoing with: "${best.text}". ${object.reasoning}`,
+      `Candidates:\n${object.captions.map((c: any, i: number) => `  ${i === object.bestIndex ? '>' : ' '} "${c.text}" (${c.angle})`).join('\n')}\n\nGoing with: "${best.text}". ${object.reasoning}`,
     )
 
     return best.text

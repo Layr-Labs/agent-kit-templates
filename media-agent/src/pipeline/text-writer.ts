@@ -1,9 +1,10 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import type { ContentConcept, AgentIdentity } from '../types.js'
 import { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import { buildArticleOutlinePrompt, buildArticleSectionPrompt, buildArticleHeadlinePrompt } from '../prompts/article.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const outlineSchema = z.object({
   thesis: z.string(),
@@ -53,7 +54,9 @@ export class TextWriter {
     this.events.monologue(`Writing article (~${wordTarget} words) for "${concept.caption}"...`)
 
     // Step 1: Generate outline
-    const { output: outline } = await generateText({
+    const { output: outline } = await generateTrackedText({
+      operation: 'write_article_outline',
+      modelId: this.config.modelId('writing'),
       model: this.config.model('writing'),
       output: Output.object({ schema: outlineSchema }),
       system: this.outlinePrompt,
@@ -68,7 +71,9 @@ export class TextWriter {
     sections.push(outline.hook)
 
     for (const section of outline.sections) {
-      const { text } = await generateText({
+      const { text } = await generateTrackedText({
+        operation: 'write_article_section',
+        modelId: this.config.modelId('writing'),
         model: this.config.model('writing'),
         system: this.sectionPrompt,
         prompt: `Write this section of the article:\n\nTitle: ${section.title}\nKey argument: ${section.keyArgument}\nEvidence to include: ${section.evidence}\nTransition to next: ${section.transition}\n\nOverall thesis: ${outline.thesis}\nTarget: ~${Math.round(wordTarget / outline.sections.length)} words for this section.`,
@@ -81,7 +86,9 @@ export class TextWriter {
     sections.push(outline.conclusion)
 
     // Step 3: Generate headline
-    const { output: headlines } = await generateText({
+    const { output: headlines } = await generateTrackedText({
+      operation: 'write_article_headline',
+      modelId: this.config.modelId('caption'),
       model: this.config.model('caption'),
       output: Output.object({ schema: headlineSchema }),
       system: this.headlinePrompt,

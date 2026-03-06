@@ -1,4 +1,4 @@
-import { generateText, Output } from 'ai'
+import { Output } from 'ai'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { Cache } from '../cache/cache.js'
 import { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import { buildStylePrompt, type StyleConfig } from '../prompts/style.js'
+import { generateTrackedText } from '../ai/tracking.js'
 
 const subjectExtractionSchema = z.object({
   subjects: z.array(z.object({
@@ -74,7 +75,9 @@ export class Generator {
       try {
         const refImages = i === 0 ? await this.findReferenceImages(concept) : (concept.referenceImageUrls ?? [])
         const messages = this.buildMessages(prompt, refImages)
-        const { files } = await generateText({
+        const { files } = await generateTrackedText({
+          operation: 'generate_image',
+          modelId: this.config.modelId('generation'),
           model: this.config.model('generation'),
           messages,
         })
@@ -121,7 +124,9 @@ export class Generator {
     const urls: string[] = [...(concept.referenceImageUrls ?? [])]
 
     try {
-      const { output: object } = await generateText({
+      const { output: object } = await generateTrackedText({
+        operation: 'extract_visual_subjects',
+        modelId: this.config.modelId('caption'),
         model: this.config.model('caption'),
         output: Output.object({ schema: subjectExtractionSchema }),
         prompt: `Extract named people, products, or companies from this concept that would benefit from a visual reference:\n\nVisual: ${concept.visual}\n\nOnly include specific, real, recognizable subjects.`,

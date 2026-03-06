@@ -1,9 +1,9 @@
 import { tool } from 'ai'
-import { generateText } from 'ai'
 import { z } from 'zod'
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs'
 import { join, resolve } from 'path'
 import type { Skill, SkillContext } from '../../types.js'
+import { generateTrackedText } from '../../../ai/tracking.js'
 
 const SKILL_TEMPLATE = `import { tool } from 'ai'
 import { z } from 'zod'
@@ -119,7 +119,9 @@ const skill: Skill = {
 
           // Generate the skill code via LLM
           try {
-            const { text: generatedCode } = await generateText({
+            const { text: generatedCode } = await generateTrackedText({
+              operation: 'create_skill',
+              modelId: ctx.config.modelId('ideation'),
               model: ctx.config.model('ideation'),
               system: `You are a TypeScript skill code generator for an autonomous agent framework.
 
