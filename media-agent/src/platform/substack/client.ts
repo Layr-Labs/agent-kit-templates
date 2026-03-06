@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { EventBus } from '../../console/events.js'
+import type { BrowserLike } from '../../browser/types.js'
 
 export interface SubstackArticle {
   slug: string
@@ -26,7 +27,7 @@ export class SubstackClient {
   constructor(
     private events: EventBus,
     handle: string,
-    private browser: unknown,
+    private browser: BrowserLike,
   ) {
     this.handle = handle
   }
@@ -45,7 +46,7 @@ export class SubstackClient {
   async isLoggedIn(): Promise<boolean> {
     if (Date.now() - this.lastLoginSuccess < 30 * 60 * 1000) return true
 
-    const browser = this.browser as any
+    const browser = this.browser
     try {
       await browser.navigate(`${this.baseUrl}/publish/home`)
       await browser.waitMs(3000)
@@ -217,7 +218,7 @@ CRITICAL:
    * Upload an image to Substack's CDN via their API.
    */
   async uploadImage(imagePath: string): Promise<{ url: string; width: number; height: number } | null> {
-    const browser = this.browser as any
+    const browser = this.browser
     const imageBuffer = readFileSync(imagePath)
     const base64 = imageBuffer.toString('base64')
 
@@ -232,7 +233,7 @@ CRITICAL:
       await browser.evaluate(`window.__imgB64 += ${JSON.stringify(chunk)}`)
     }
 
-    const resultJson = await browser.evaluate(`
+    const resultJson = await browser.evaluate<string>(`
       (async () => {
         const dataUrl = 'data:${mime};base64,' + window.__imgB64;
         delete window.__imgB64;
@@ -269,8 +270,8 @@ CRITICAL:
    * Insert an uploaded image into Substack's Tiptap editor via ProseMirror transaction.
    */
   async insertEditorImage(cdnUrl: string, width: number, height: number): Promise<boolean> {
-    const browser = this.browser as any
-    const result = await browser.evaluate(`
+    const browser = this.browser
+    const result = await browser.evaluate<string>(`
       (() => {
         const tiptapEl = document.querySelector('.tiptap');
         const editor = tiptapEl?.editor;
@@ -315,7 +316,7 @@ CRITICAL:
     const articlePath = join(articlesDir, `${slug}.md`)
     writeFileSync(articlePath, opts.body, 'utf-8')
 
-    const browser = this.browser as any
+    const browser = this.browser
 
     // Upload image and inject content directly (no LLM agent needed for this)
     let imageInserted = false

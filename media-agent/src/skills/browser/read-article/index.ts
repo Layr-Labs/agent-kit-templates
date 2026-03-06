@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import type { Skill, SkillContext } from '../../types.js'
+import type { BrowserLike } from '../../../browser/types.js'
 
 const skill: Skill = {
   name: 'read-article',
@@ -19,13 +20,13 @@ const skill: Skill = {
         execute: async ({ url }) => {
           if (!ctx.browser) return { error: 'Browser not available.' }
 
-          const browser = ctx.browser as any
+          const browser = ctx.browser as BrowserLike
           try {
             await browser.navigate(url)
             await browser.waitMs(3000)
 
             // Extract article text using common article selectors, falling back to body
-            const text = await browser.evaluate(`
+            const text = await browser.evaluate<string>(`
               (() => {
                 const selectors = ['article', '[role="main"]', 'main', '.post-content', '.article-body', '.entry-content', '.story-body'];
                 for (const sel of selectors) {
@@ -71,7 +72,7 @@ const skill: Skill = {
         execute: async ({ urls, max }) => {
           if (!ctx.browser) return { error: 'Browser not available.' }
 
-          const browser = ctx.browser as any
+          const browser = ctx.browser as BrowserLike
           const results: Array<{ url: string; title: string; preview: string; chars: number }> = []
 
           for (const url of urls.slice(0, max)) {
@@ -79,7 +80,7 @@ const skill: Skill = {
               await browser.navigate(url)
               await browser.waitMs(3000)
 
-              const extracted = await browser.evaluate(`
+              const extracted = await browser.evaluate<string>(`
                 (() => {
                   const title = document.title || '';
                   const selectors = ['article', '[role="main"]', 'main', '.post-content', '.article-body', '.entry-content'];

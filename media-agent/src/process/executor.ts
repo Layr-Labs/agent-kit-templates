@@ -71,11 +71,11 @@ export class ProcessExecutor {
     if (!this.config.testMode) return trigger.intervalMs
 
     // In test mode, compress all intervals to fast timers
+    if (trigger.intervalMs >= 604800000) return 60000      // weekly+ → 60s
     if (trigger.intervalMs >= 86400000) return 30000       // daily+ → 30s
     if (trigger.intervalMs >= 21600000) return 20000       // 6h+ → 20s
     if (trigger.intervalMs >= 3600000) return 15000        // 1h+ → 15s
     if (trigger.intervalMs >= 300000) return 10000         // 5min+ → 10s
-    if (trigger.intervalMs >= 604800000) return 60000      // weekly → 60s
     return Math.min(trigger.intervalMs, 10000)             // cap at 10s
   }
 

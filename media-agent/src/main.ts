@@ -24,6 +24,7 @@ import { createPipelineState } from './process/state.js'
 import { AgentCompiler } from './process/compiler.js'
 import { ProcessExecutor } from './process/executor.js'
 import { JsonStore } from './store/json-store.js'
+import { initCostTracker } from './ai/tracking.js'
 import type { PlatformAdapter } from './platform/types.js'
 import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
@@ -198,6 +199,8 @@ async function main() {
     loop.stop()
     await Promise.all([signalCache.persist(), evalCache.persist(), imageCache.persist()])
     await skills.shutdownAll()
+    const { disconnectBrowser } = await import('./browser/index.js')
+    await disconnectBrowser(ctx.browser)
     await app.close()
     db.close()
     process.exit(0)

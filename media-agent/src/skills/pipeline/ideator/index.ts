@@ -14,6 +14,7 @@ const skill: Skill = {
 
   async init(ctx: SkillContext) {
     const worldview = new WorldviewStore(ctx.events, ctx.config, ctx.identity, join(ctx.dataDir, 'worldview.json'))
+    await worldview.init()
     ideator = new Ideator(ctx.events, ctx.config, ctx.identity, worldview)
 
     return {

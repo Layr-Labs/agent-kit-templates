@@ -1,25 +1,38 @@
 FROM oven/bun:1
 USER root
 WORKDIR /app
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
 
 # ── System deps: X11, dbus, clipboard, fonts ──────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget gnupg2 ca-certificates curl \
-    uuid-runtime \
-    fonts-unifont fonts-liberation fonts-dejavu-core fonts-freefont-ttf \
-    fonts-noto-core fonts-noto-color-emoji \
-    xvfb openbox dbus dbus-x11 xdg-utils x11-utils \
-    libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
-    libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 \
-    libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-    libdrm2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
-    libgtk-3-0 libdbus-1-3 \
-    libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
-    locales xdotool xclip imagemagick \
-    x11vnc websockify \
-    proxychains-ng \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /opt/novnc
+RUN set -euo pipefail; \
+    log_file="$(mktemp)"; \
+    if ! { \
+      apt-get -qq update && \
+      apt-get -yqq install --no-install-recommends \
+        wget gnupg2 ca-certificates curl \
+        uuid-runtime \
+        fonts-unifont fonts-liberation fonts-dejavu-core fonts-freefont-ttf \
+        fonts-noto-core fonts-noto-color-emoji \
+        xvfb openbox dbus dbus-x11 xdg-utils x11-utils \
+        libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
+        libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 \
+        libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
+        libgtk-3-0 libdbus-1-3 \
+        libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
+        locales xdotool xclip imagemagick \
+        x11vnc websockify \
+        proxychains-ng && \
+      rm -rf /var/lib/apt/lists/* && \
+      mkdir -p /opt/novnc; \
+    } >"$log_file" 2>&1; then \
+      cat "$log_file"; \
+      rm -f "$log_file"; \
+      exit 1; \
+    fi; \
+    rm -f "$log_file"; \
+    echo "system deps: ok"
 
 # ── noVNC (pin known-good upstream bundle) ─────────────────────────────────
 ARG NOVNC_VERSION=1.5.0
@@ -40,9 +53,21 @@ ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # ── Google Chrome ─────────────────────────────────────────────────────────
-RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get update && apt-get install -y --no-install-recommends /tmp/chrome.deb \
-    && rm /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
+RUN set -euo pipefail; \
+    log_file="$(mktemp)"; \
+    if ! { \
+      wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+      apt-get -qq update && \
+      apt-get -yqq install --no-install-recommends /tmp/chrome.deb && \
+      rm /tmp/chrome.deb && \
+      rm -rf /var/lib/apt/lists/*; \
+    } >"$log_file" 2>&1; then \
+      cat "$log_file"; \
+      rm -f "$log_file"; \
+      exit 1; \
+    fi; \
+    rm -f "$log_file"; \
+    echo "chrome: ok"
 
 ENV DISPLAY=:99
 ENV CHROME_PATH=/usr/bin/google-chrome-stable

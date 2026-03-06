@@ -10,6 +10,7 @@ import type { ScannerRegistry } from '../pipeline/scanner.js'
 import type { PlatformAdapter } from '../platform/types.js'
 import type { Cache } from '../cache/cache.js'
 import type { StyleConfig } from '../prompts/style.js'
+import type { BrowserLike } from '../browser/types.js'
 
 export interface SkillRegistryInterface {
   register(skill: any): void
@@ -25,7 +26,7 @@ export interface SkillContext {
   dataDir: string
   db: Database
   wallet: WalletManager
-  browser?: unknown
+  browser?: BrowserLike
   state: PipelineState
   scannerRegistry: ScannerRegistry
   platform?: PlatformAdapter

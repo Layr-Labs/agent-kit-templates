@@ -51,12 +51,24 @@ const skill: Skill = {
             const { runBrowserTask } = await import('../../../browser/index.js')
 
             const { result, success } = await runBrowserTask({
-              task: `Navigate to https://x.com/settings/monetization or https://ads.x.com/billing. ${skip_if_exists ? 'First check if a payment method is already on file. If yes, report that and stop.' : ''} Add a new payment card with the provided details. Enter the card number, expiry, and CVV. Confirm the payment method.`,
+              task: `Navigate to https://x.com/settings/monetization or https://ads.x.com/billing. ${skip_if_exists ? 'First check if a payment method is already on file. If yes, report that and stop.' : ''} Add a new payment card.
+
+Call get_card_details to retrieve the real card number, CVV, expiry, and billing ZIP before entering anything.
+After you retrieve the card details, enter them into the billing form and confirm the payment method.
+
+Do not guess card details. Do not search the filesystem for them.`,
               browser: ctx.browser,
-              sensitiveData: {
-                card_number: card.card_number,
-                card_cvv: card.cvv,
-                card_expiry: card.expiry,
+              extraTools: {
+                get_card_details: tool({
+                  description: 'Get the payment card details needed to complete the billing form.',
+                  inputSchema: z.object({}),
+                  execute: async () => ({
+                    card_number: card.card_number,
+                    cvv: card.cvv,
+                    expiry: card.expiry,
+                    billing_zip: card.billing_zip ?? '',
+                  }),
+                }),
               },
               maxSteps: 30,
             })

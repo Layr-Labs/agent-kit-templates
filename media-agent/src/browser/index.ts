@@ -6,9 +6,11 @@
 import { execSync, spawn } from 'child_process'
 import { mkdirSync, rmSync } from 'fs'
 import { resolve } from 'path'
+import type { BrowserLike, BrowserLoginOptions, BrowserLoginResult, BrowserTaskResult } from './types.js'
 
 const CDP_PORT = Number(process.env.CDP_PORT || 9222)
 const CDP_URL = process.env.CDP_URL || `http://localhost:${CDP_PORT}`
+const BROWSER_MODEL = process.env.BROWSER_MODEL?.trim() || undefined
 
 function isChromeRunning(): boolean {
   try {
@@ -73,7 +75,26 @@ async function waitForChrome(timeoutMs = 20000): Promise<boolean> {
   return false
 }
 
-export async function createBrowser(): Promise<unknown | null> {
+async function waitForChromeShutdown(timeoutMs = 10000): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (!isChromeRunning()) return true
+    await new Promise(r => setTimeout(r, 250))
+  }
+  return false
+}
+
+function stopChromeOnDebugPort(): void {
+  try {
+    const output = execSync(`lsof -ti tcp:${CDP_PORT}`, { timeout: 3000 }).toString().trim()
+    if (!output) return
+    for (const pid of output.split(/\s+/)) {
+      try { process.kill(Number(pid), 'SIGTERM') } catch {}
+    }
+  } catch {}
+}
+
+export async function createBrowser(): Promise<BrowserLike | null> {
   if (process.env.BROWSER_DISABLED === 'true') {
     console.log('Browser disabled via BROWSER_DISABLED=true')
     return null
@@ -93,20 +114,70 @@ export async function createBrowser(): Promise<unknown | null> {
     const { CDPBrowser } = await import('browser-autopilot')
     const browser = new CDPBrowser()
     await browser.connect()
-    return browser
+    return browser as BrowserLike
   } catch (err) {
     console.error(`Browser connection failed: ${(err as Error).message}`)
     return null
   }
 }
 
+export async function disconnectBrowser(browser?: BrowserLike | null): Promise<void> {
+  if (!browser) return
+  try {
+    await browser.disconnect()
+  } catch {}
+}
+
 export async function runBrowserTask(opts: {
   task: string
-  browser: unknown
+  browser: BrowserLike
   extraTools?: Record<string, any>
   maxSteps?: number
   sensitiveData?: Record<string, string>
-}): Promise<{ result: string | null; success: boolean }> {
+}): Promise<BrowserTaskResult> {
   const { runAgent } = await import('browser-autopilot')
-  return runAgent(opts)
+  const result = await runAgent({ ...opts, model: BROWSER_MODEL })
+  return {
+    result: result.result,
+    success: result.success,
+  }
+}
+
+export async function runBrowserLogin(opts: BrowserLoginOptions): Promise<BrowserLoginResult> {
+  const {
+    platform,
+    loginUrl,
+    successUrlContains,
+    credentials,
+    browser,
+    task = `Confirm you are logged into ${platform} and describe the authenticated home or dashboard page.`,
+    maxSteps = 40,
+  } = opts
+
+  await disconnectBrowser(browser)
+  stopChromeOnDebugPort()
+  await waitForChromeShutdown()
+
+  const { orchestrate } = await import('browser-autopilot')
+  const result = await orchestrate({
+    credentials: {
+      username: credentials.username,
+      password: credentials.password,
+      email: credentials.email ?? '',
+      totpKey: credentials.totpKey ?? '',
+    },
+    loginUrl,
+    successUrlContains,
+    task,
+    maxSteps,
+    keepBrowser: true,
+    model: BROWSER_MODEL,
+  })
+
+  return {
+    result: result.result,
+    success: result.success,
+    browser: (result.browser as BrowserLike | undefined) ?? null,
+    loginMethod: result.loginMethod,
+  }
 }
