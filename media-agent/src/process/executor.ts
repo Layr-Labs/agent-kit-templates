@@ -136,6 +136,8 @@ IMPORTANT TOOL USAGE RULES:
 - For publishing image posts: ALWAYS use publish_image. Never use browse for this.
 - For reading source articles: use read_article or read_articles (fast, lightweight). Use browse only for Google searches and research that requires multi-step navigation.
 - For Substack account setup: use check_substack_account and setup_substack_account.
+- If prior learnings or notes may be relevant, consult list_learnings/read_learning or list_notes/read_note before starting fresh research.
+- When you learn something durable from research, save it with record_learning or write_file so it persists beyond this step.
 - browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, or account management.
 
 If something fails, try the correct dedicated tool again before attempting workarounds. If a tool fails twice, move on — don't burn steps on manual browser navigation for tasks that have dedicated tools.

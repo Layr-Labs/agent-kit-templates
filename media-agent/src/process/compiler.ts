@@ -27,11 +27,11 @@ const compiledAgentSchema = z.object({
     visualIdentity: z.string().describe('How images should look'),
     compositionPrinciples: z.string().describe('Layout and composition rules'),
     renderingRules: z.string().describe('Technical constraints and what to avoid'),
-  }).describe('Visual style for image generation'),
+  }).optional().describe('Visual style for image generation'),
   engagement: z.object({
     voiceDescription: z.string().describe('How the agent interacts with its audience'),
     rules: z.array(z.string()).describe('Specific engagement rules (5-10 items)'),
-  }).describe('Engagement behavior with audience'),
+  }).optional().describe('Engagement behavior with audience'),
   governance: z.object({
     upgradeRules: z.array(z.string()).describe('Rules about what can/cannot be upgraded'),
     financialCommitments: z.array(z.string()).describe('Financial obligations (dividends, spending limits)'),
@@ -123,7 +123,7 @@ function COMPILER_SYSTEM_PROMPT(skills: string[]): string {
   return `You are an agent compiler. You take three documents describing an autonomous agent and compile them into structured data:
 
 1. SOUL — who the agent is (personality, beliefs, style, engagement behavior)
-2. PROCESS — how the agent creates content (creative workflows described in plain text)
+2. PROCESS — how the agent operates, learns, researches, and creates (creative or operational workflows described in plain text)
 3. CONSTITUTION — governance rules (immutable constraints, financial commitments)
 
 ## Available Skills
@@ -135,6 +135,20 @@ These tools are available for the agent to use during workflow execution:
 
 | Tool | What it does |
 |---|---|
+| browse | General-purpose browser automation for research, extraction, and interaction |
+| read_article | Read and extract a single article from the web |
+| read_articles | Read and extract multiple articles from the web |
+| write_file | Persist long outputs to a file in the data directory |
+| read_file | Read a file from the data directory |
+| list_files | List files in the data directory |
+| record_learning | Save a durable research finding or lesson to the learnings directory |
+| list_learnings | List saved learning notes |
+| read_learning | Read a saved learning note |
+| write_note | Save a reusable note, draft, or working document |
+| list_notes | List saved notes |
+| read_note | Read a saved note |
+| list_skills | List loaded skills and tools |
+| create_skill | Create and hot-load a new skill when a needed capability is missing |
 | scan | Scan for signals from data sources |
 | score_signals | Score and rank signals against worldview |
 | generate_concepts | Generate creative content concepts |
@@ -159,12 +173,14 @@ These tools are available for the agent to use during workflow execution:
 | get_card_details | Get virtual card details (number, CVV, expiry) |
 | topup_twitter_billing | Add payment card to Twitter/X billing settings |
 
+You are not limited to media publishing. Use the available tools to compile workflows for research, learning, browser-driven tasks, email, wallet operations, or file-based knowledge work when that is what the PROCESS describes.
+
 ## Compiling the PROCESS into Workflows
 
-The PROCESS document describes the agent's creative flows in plain text. You must compile this into:
+The PROCESS document describes the agent's operational flows in plain text. You must compile this into:
 
 1. **Background tasks** — periodic standalone actions (scan, engage, reflect). These run independently.
-2. **Workflows** — multi-step creative processes. Each workflow has:
+2. **Workflows** — multi-step research, learning, or creative processes. Each workflow has:
    - A trigger (interval-based timing)
    - An instruction (natural language description of what the agent should do, referencing available tools)
    - A priority (higher = checked first)
@@ -173,13 +189,15 @@ The PROCESS document describes the agent's creative flows in plain text. You mus
 
 ## Bootstrap Workflow
 
-If the PROCESS involves publishing to a platform (Substack, Twitter, etc.), you MUST include a **bootstrap workflow** as the HIGHEST priority workflow. This workflow runs once at startup to ensure the agent's platform account is set up before any content workflows fire.
+If the PROCESS involves publishing to an external platform (Substack, Twitter, etc.), you SHOULD include a **bootstrap workflow** as the HIGHEST priority workflow. This workflow runs once at startup to ensure the platform account is set up before publishing workflows fire.
 
 For Substack: The bootstrap workflow should use \`check_substack_account\` to check if an account exists. If not, call \`setup_substack_account\` with the agent's name, a handle derived from the name, the agent's bio from the SOUL, the newsletter name, and a description from the tagline. Use the agent's identity fields for these values.
 
 Give bootstrap workflows \`priority: 100\` (highest), \`runOnce: true\`, and a very short interval (intervalMs: 30000) so they fire immediately on first tick. The timerKey should be "bootstrap".
 
 The bootstrap instruction should clearly state: "Check if the platform account exists. If it does, do nothing. If it doesn't, set it up using the setup tools. Use the agent's name and identity for account details."
+
+If the PROCESS does not require an external publishing platform, do NOT invent a bootstrap workflow.
 
 ## Trigger Format
 
@@ -224,12 +242,12 @@ Extract identity fields from the SOUL document's markdown sections:
 ## Style Extraction
 
 If the SOUL has a ## Visual Style section, extract it into the style object.
-If there is no visual style section, omit the style field entirely (the agent won't generate images).
+If there is no visual style section, omit the style field entirely. Do not invent one.
 
 ## Engagement Extraction
 
 If the SOUL has an ## Engagement section, extract it into the engagement object.
-If not specified, omit the engagement field.
+If not specified, omit the engagement field. Do not invent one.
 
 ## Governance Extraction
 
@@ -242,5 +260,11 @@ If a section is missing, provide reasonable defaults.
 
 ## Workflow Priorities
 
-Higher priority = checked first: bootstrap=100, flagship=10, article=8, quickhit=5`
+Higher priority = checked first: bootstrap=100, flagship=10, article=8, quickhit=5
+
+## Learning Persistence
+
+When the PROCESS involves research, synthesis, or repeated web learning, prefer workflows that save durable findings using \`record_learning\`, \`write_note\`, or \`write_file\`. Important learnings should not exist only in transient model output.
+
+When the PROCESS depends on accumulated knowledge, prior research, or a running notebook of ideas, include steps that consult \`list_learnings\` + \`read_learning\` and \`list_notes\` + \`read_note\` before doing fresh work.`
 }

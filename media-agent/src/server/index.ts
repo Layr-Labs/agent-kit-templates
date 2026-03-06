@@ -6,12 +6,14 @@ import type { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import type { Database } from '../db/index.js'
 import { registerConsoleRoutes } from '../console/stream.js'
+import type { AgentIdentity } from '../types.js'
+import { handleUpgradeConsent } from '../upgrade/consent.js'
 
 export async function createServer(opts: {
   events: EventBus
   config: Config
   db: Database
-  identity: { name: string; tagline: string; creator: string; beliefs: string[]; punchesUp: string[]; respects: string[]; motto: string }
+  identity: AgentIdentity
   wallets?: { evm: string; solana: string }
 }) {
   const { events, config, db, identity, wallets } = opts
@@ -53,6 +55,22 @@ export async function createServer(opts: {
   app.get('/api/wallets', async () => {
     if (!wallets) return { evm: null, solana: null }
     return wallets
+  })
+
+  // Coordinator -> agent constitutional consent gate
+  app.post('/upgrade/consent', async (request, reply) => {
+    const response = await handleUpgradeConsent({
+      headers: request.headers as Record<string, string | string[] | undefined>,
+      body: request.body,
+      config,
+      events,
+      identity,
+    })
+    reply.code(response.status)
+    for (const [key, value] of response.headers.entries()) {
+      reply.header(key, value)
+    }
+    return response.text()
   })
 
   // Console SSE
