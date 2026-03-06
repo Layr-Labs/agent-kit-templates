@@ -192,7 +192,7 @@ async function main() {
   await app.listen({ port: config.port, host: '0.0.0.0' })
   console.log(`Media agent running on port ${config.port}`)
 
-  loop.start()
+  const loopPromise = loop.start()
 
   const shutdown = async () => {
     console.log('Shutting down...')
@@ -208,6 +208,8 @@ async function main() {
 
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+
+  await loopPromise
 }
 
 main().catch(err => {
