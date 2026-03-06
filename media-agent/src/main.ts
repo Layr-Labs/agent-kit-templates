@@ -102,10 +102,13 @@ async function initSubstackPlatform(events: EventBus, ctx: SkillContext): Promis
 }
 
 async function main() {
+  console.log('Agent starting...')
+
   // 1. Read the three defining files
   const soulText = readFile('SOUL.md')
   const processText = readFile('PROCESS.md')
   const constitutionText = readFile('constitution.md')
+  console.log('Agent files loaded')
 
   // 2. Init config
   const config = createConfig()

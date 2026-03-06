@@ -147,4 +147,5 @@ if [ -n "$CONSTITUTION_MD_B64" ]; then
 fi
 
 # ── Start the agent ───────────────────────────────────────────────────────
-exec bun src/main.ts
+echo "Starting agent..."
+exec bun src/main.ts 2>&1
