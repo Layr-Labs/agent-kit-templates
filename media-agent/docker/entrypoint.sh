@@ -148,4 +148,8 @@ fi
 
 # ── Start the agent ───────────────────────────────────────────────────────
 echo "Starting agent..."
+echo "Node/Bun version: $(bun --version 2>&1)"
+echo "Working dir: $(pwd)"
+echo "Files: $(ls -la SOUL.md PROCESS.md constitution.md 2>&1)"
+echo "Main exists: $(ls -la src/main.ts 2>&1)"
 exec bun src/main.ts 2>&1
