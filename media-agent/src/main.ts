@@ -29,6 +29,39 @@ import type { PlatformAdapter } from './platform/types.js'
 import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
 
+function sanitizeSubstackHandle(value: unknown): string {
+  if (typeof value !== 'string') return ''
+
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\.substack\.com.*$/i, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function deriveSubstackHandle(identity: AgentIdentity, savedAccount?: unknown): string {
+  const envHandle = sanitizeSubstackHandle(process.env.SUBSTACK_HANDLE)
+  if (envHandle) return envHandle
+
+  if (savedAccount && typeof savedAccount === 'object') {
+    const account = savedAccount as Record<string, unknown>
+    const publicationUrl = typeof account.publicationUrl === 'string' ? account.publicationUrl : ''
+    const publicationHandle = sanitizeSubstackHandle(publicationUrl.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)?.[1] ?? '')
+    if (publicationHandle) return publicationHandle
+
+    const savedHandle = sanitizeSubstackHandle(account.handle)
+    if (savedHandle) return savedHandle
+  }
+
+  const identityHandle = sanitizeSubstackHandle(identity.name)
+  if (identityHandle) return identityHandle
+
+  return 'agent-publication'
+}
+
 function readFile(path: string): string {
   try {
     return readFileSync(resolve(process.cwd(), path), 'utf-8')
@@ -81,20 +114,17 @@ async function initSubstackPlatform(events: EventBus, ctx: SkillContext): Promis
     process.exit(1)
   }
 
-  // Handle is resolved dynamically: env var → saved account → derived from agent name
-  let substackHandle = process.env.SUBSTACK_HANDLE ?? ''
-  if (!substackHandle) {
-    try {
-      const accountPath = join(ctx.dataDir, 'substack-account.json')
-      const account = JSON.parse(readFileSync(accountPath, 'utf-8'))
-      const publicationUrl = typeof account.publicationUrl === 'string' ? account.publicationUrl : ''
-      const publicationHandle = publicationUrl.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)?.[1] ?? ''
-      substackHandle = publicationHandle || account.handle ?? ''
-    } catch {}
-  }
-  if (!substackHandle) {
-    substackHandle = ctx.identity.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ?? ''
-  }
+  // Handle is resolved dynamically: env var → saved account → derived from agent name.
+  // This ensures the agent can always generate a publication slug on first boot.
+  let savedAccount: unknown
+  try {
+    const accountPath = join(ctx.dataDir, 'substack-account.json')
+    savedAccount = JSON.parse(readFileSync(accountPath, 'utf-8'))
+  } catch {}
+
+  const substackHandle = deriveSubstackHandle(ctx.identity, savedAccount)
+  events.monologue(`Using Substack handle @${substackHandle}`)
+
   const client = new SubstackClient(events, substackHandle, ctx.browser)
   const engagement = new SubstackEngagement(client, events, ctx.identity)
   const rssFeeds = (process.env.RSS_FEEDS ?? '').split(',').filter(Boolean)
