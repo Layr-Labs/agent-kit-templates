@@ -89,4 +89,4 @@ EXPOSE 3000 6080
 ENV NODE_ENV=production
 ENV PORT=3000
 
-ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/entrypoint.sh"]
