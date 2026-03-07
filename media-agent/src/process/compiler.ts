@@ -28,11 +28,11 @@ const compiledAgentSchema = z.object({
     visualIdentity: z.string().describe('How images should look'),
     compositionPrinciples: z.string().describe('Layout and composition rules'),
     renderingRules: z.string().describe('Technical constraints and what to avoid'),
-  }).nullable().describe('Visual style for image generation. null if SOUL has no ## Visual Style section.'),
+  }).optional().describe('Visual style for image generation'),
   engagement: z.object({
     voiceDescription: z.string().describe('How the agent interacts with its audience'),
     rules: z.array(z.string()).describe('Specific engagement rules (5-10 items)'),
-  }).nullable().describe('Engagement behavior with audience. null if SOUL has no ## Engagement section.'),
+  }).optional().describe('Engagement behavior with audience'),
   governance: z.object({
     upgradeRules: z.array(z.string()).describe('Rules about what can/cannot be upgraded'),
     financialCommitments: z.array(z.string()).describe('Financial obligations (dividends, spending limits)'),
@@ -108,8 +108,8 @@ export class AgentCompiler {
       compiledAt: Date.now(),
       sourceHash,
       identity: object.identity,
-      style: object.style ?? undefined,
-      engagement: object.engagement ?? undefined,
+      style: object.style,
+      engagement: object.engagement,
       governance: object.governance,
       plan: object.plan,
       creativeProcess: process,
@@ -245,7 +245,7 @@ Extract identity fields from the SOUL document's markdown sections:
 ## Style Extraction
 
 If the SOUL has a ## Visual Style section, extract it into the style object.
-If there is no visual style section, set style to null. Do not invent one.
+If there is no visual style section, omit the style field entirely. Do not invent one.
 
 ## Engagement Extraction
 
