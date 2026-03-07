@@ -172,9 +172,15 @@ export async function generateTrackedText(
 ): Promise<any> {
   const { operation, modelId, ...generateOptions } = options
   const startedAt = Date.now()
+  const providerOptions = withOpenAIStrictSchemaDisabled(
+    generateOptions.providerOptions as Record<string, unknown> | undefined,
+  )
 
   try {
-    const result = await generateText(generateOptions as any)
+    const result = await generateText({
+      ...generateOptions,
+      providerOptions,
+    } as any)
     await tracker?.record(buildCostRecord({
       operation,
       modelId: modelId ?? inferModelId(result),
@@ -256,4 +262,23 @@ function toNumber(value: unknown): number | undefined {
 function sumNumbers(a?: number, b?: number): number | undefined {
   if (typeof a !== 'number' && typeof b !== 'number') return undefined
   return (a ?? 0) + (b ?? 0)
+}
+
+function withOpenAIStrictSchemaDisabled(
+  providerOptions?: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...(providerOptions ?? {}),
+    // AI SDK 6 enables strictJsonSchema by default for OpenAI-compatible
+    // providers, but this codebase still relies on optional/default-heavy
+    // schemas. Relax strict mode so GPT models can execute existing flows.
+    openai: {
+      ...((providerOptions?.openai as Record<string, unknown> | undefined) ?? {}),
+      strictJsonSchema: false,
+    },
+    azure: {
+      ...((providerOptions?.azure as Record<string, unknown> | undefined) ?? {}),
+      strictJsonSchema: false,
+    },
+  }
 }
