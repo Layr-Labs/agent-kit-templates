@@ -144,8 +144,14 @@ RULES:
    - ctx.caches (eval, image, signal caches)
 5. For browser tasks, use: const { runBrowserTask } = await import('../../../browser/index.js')
 6. For file storage, use ctx.dataDir
-7. Keep it simple — one file, no external dependencies beyond what's already installed
+7. You CAN install external dependencies. The container runs as root with python3 and pip3 available.
+   - In the \`init()\` function, use \`import { execSync } from 'child_process'\` to install what you need:
+     \`execSync('pip3 install --break-system-packages -q arxiv pymupdf', { stdio: 'pipe' })\`
+   - You can create helper scripts in any language (Python, bash, etc.) by writing them to \`ctx.dataDir\` during \`init()\`
+   - Use \`Bun.spawn()\` or \`execSync()\` in tool \`execute\` functions to call those scripts
+   - Guard installs with a try/catch — if a dep is already installed, skip it
 8. Handle errors gracefully — return error messages, don't throw
+9. For parallel work (e.g. reading multiple papers), use \`Promise.all()\` to spawn concurrent subprocesses
 
 CONSTITUTION (the agent must respect these constraints):
 ${constitution}

@@ -128,15 +128,25 @@ export async function disconnectBrowser(browser?: BrowserLike | null): Promise<v
   } catch {}
 }
 
+const DEFAULT_BROWSER_TASK_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
+
 export async function runBrowserTask(opts: {
   task: string
   browser: BrowserLike
   extraTools?: Record<string, any>
   maxSteps?: number
   sensitiveData?: Record<string, string>
+  timeoutMs?: number
 }): Promise<BrowserTaskResult> {
   const { runAgent } = await import('browser-autopilot')
-  const result = await runAgent({ ...opts, model: BROWSER_MODEL })
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_BROWSER_TASK_TIMEOUT_MS
+
+  const taskPromise = runAgent({ ...opts, model: BROWSER_MODEL })
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Browser task timed out after ${timeoutMs / 1000}s`)), timeoutMs),
+  )
+
+  const result = await Promise.race([taskPromise, timeoutPromise])
   return {
     result: result.result,
     success: result.success,

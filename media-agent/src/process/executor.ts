@@ -118,8 +118,10 @@ export class ProcessExecutor {
     this.events.monologue(`Starting workflow: ${workflow.name}`)
     resetWorkflowState(this.state)
 
+    const workflowTimeoutMs = 25 * 60 * 1000 // 25 minutes max per workflow
+
     try {
-      const { text, steps } = await generateTrackedText({
+      const workflowPromise = generateTrackedText({
         operation: `workflow:${workflow.name}`,
         modelId: this.config.modelId('ideation'),
         model: this.config.model('ideation'),
@@ -152,6 +154,12 @@ Think out loud about what you're doing — your thoughts are broadcast live to y
           ...(this.config.reasoningEffort ? { openai: { reasoningEffort: this.config.reasoningEffort } } : {}),
         },
       })
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Workflow "${workflow.name}" timed out after ${workflowTimeoutMs / 1000}s`)), workflowTimeoutMs),
+      )
+
+      const { text, steps } = await Promise.race([workflowPromise, timeoutPromise]) as any
 
       const toolCalls = steps.flatMap((s: any) => s.toolCalls ?? [])
       this.events.monologue(`Workflow "${workflow.name}" completed. Used ${toolCalls.length} tool(s): ${toolCalls.map((c: any) => c.toolName).join(', ')}`)
