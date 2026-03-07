@@ -139,11 +139,13 @@ You have access to all your tools. Use them in whatever order makes sense to ach
 IMPORTANT TOOL USAGE RULES:
 - For publishing articles: ALWAYS use publish_article. Never use browse to manually navigate the Substack editor.
 - For publishing image posts: ALWAYS use publish_image. Never use browse for this.
-- For reading source articles: use read_article or read_articles (fast, lightweight). Use browse only for Google searches and research that requires multi-step navigation.
+- For reading source articles and papers: use read_article or read_articles (fast, lightweight). For arXiv papers, use the HTML version (arxiv.org/html/<id>) with read_article — never browse to a PDF URL. Use browse only for Google searches and research that requires multi-step navigation.
+- If the workflow references a skill or capability you don't have (e.g. "PDF skill", "arxiv reader"), use create_skill to build it BEFORE attempting the task with browse. Creating a dedicated skill is always better than improvising with browser automation.
 - For Substack account setup: use check_substack_account and setup_substack_account.
 - If prior learnings or notes may be relevant, consult list_learnings/read_learning or list_notes/read_note before starting fresh research.
 - When you learn something durable from research, save it with record_learning or write_file so it persists beyond this step.
-- browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, or account management.
+- browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, account management, or reading PDFs.
+- NEVER navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read. Use read_article on HTML versions, or create a skill that downloads and parses PDFs programmatically.
 
 If something fails, try the correct dedicated tool again before attempting workarounds. If a tool fails twice, move on — don't burn steps on manual browser navigation for tasks that have dedicated tools.
 
