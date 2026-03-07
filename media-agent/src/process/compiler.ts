@@ -194,11 +194,11 @@ The PROCESS document describes the agent's operational flows in plain text. You 
 
 If the PROCESS involves publishing to an external platform (Substack, Twitter, etc.), you SHOULD include a **bootstrap workflow** as the HIGHEST priority workflow. This workflow runs once at startup to ensure the platform account is set up before publishing workflows fire.
 
-For Substack: The bootstrap workflow should use \`check_substack_account\` to check if an account exists. If not, call \`setup_substack_account\` with the agent's name, a handle derived from the name, the agent's bio from the SOUL, the newsletter name, and a description from the tagline. Use the agent's identity fields for these values.
+For Substack: The bootstrap workflow should use \`check_substack_account\` to check if an account exists. If not, call \`setup_substack_account\` with the agent's name, bio, newsletter name, and description from the identity. The setup tool itself can derive publication handle candidates from the full agent identity, test what is available, and reuse an existing publication if one already exists on the account.
 
 Give bootstrap workflows \`priority: 100\` (highest), \`runOnce: true\`, and a very short interval (intervalMs: 30000) so they fire immediately on first tick. The timerKey should be "bootstrap".
 
-The bootstrap instruction should clearly state: "Check if the platform account exists. If it does, do nothing. If it doesn't, set it up using the setup tools. Use the agent's name and identity for account details."
+The bootstrap instruction should clearly state: "Check if the platform account exists. If it does, do nothing. If it doesn't, set it up using the setup tools. Use the agent's identity for account details, let the setup flow choose an appropriate Substack handle, and reuse any existing publication before creating a new one."
 
 If the PROCESS does not require an external publishing platform, do NOT invent a bootstrap workflow.
 
