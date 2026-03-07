@@ -36,27 +36,99 @@ export class SubstackClient {
     return `https://${this.handle}.substack.com`
   }
 
+  private normalizeTitle(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+  }
+
+  private updateHandleFromUrl(url: string): void {
+    const match = url.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)
+    if (match?.[1] && match[1] !== this.handle) {
+      this.handle = match[1]
+      this.events.monologue(`Substack handle updated to @${this.handle} from live session.`)
+    }
+  }
+
+  private async hasSession(): Promise<boolean> {
+    const browser = this.browser
+    try {
+      await browser.navigate('https://substack.com/sign-in')
+      await browser.waitMs(2500)
+      const url = await browser.currentUrl()
+      const loggedIn = !url.includes('/sign-in') && !url.includes('/login')
+      if (loggedIn) {
+        this.updateHandleFromUrl(url)
+        this.lastLoginSuccess = Date.now()
+      }
+      return loggedIn
+    } catch {
+      return false
+    }
+  }
+
+  private async verifyPublishedArticle(expectedTitle: string, slug: string, candidateUrl?: string): Promise<string | null> {
+    const browser = this.browser
+    const urls = [candidateUrl, `${this.baseUrl}/p/${slug}`].filter(Boolean) as string[]
+    const normalizedTitle = this.normalizeTitle(expectedTitle)
+
+    for (const url of [...new Set(urls)]) {
+      try {
+        await browser.navigate(url)
+        await browser.waitMs(3000)
+        const finalUrl = await browser.currentUrl()
+        const page = await browser.evaluate<string>(`
+          (() => JSON.stringify({
+            title: document.title || '',
+            text: document.body?.innerText?.slice(0, 4000) || ''
+          }))()
+        `)
+        const parsed = JSON.parse(page) as { title?: string; text?: string }
+        const title = this.normalizeTitle(parsed.title ?? '')
+        const text = this.normalizeTitle(parsed.text ?? '')
+
+        if (
+          !finalUrl.includes('/publish/') &&
+          !finalUrl.includes('/sign-in') &&
+          (title.includes(normalizedTitle) || text.includes(normalizedTitle))
+        ) {
+          this.updateHandleFromUrl(finalUrl)
+          return finalUrl
+        }
+      } catch {
+        // Try the next candidate URL.
+      }
+    }
+
+    return null
+  }
+
+  private async persistPublicationUrl(url: string): Promise<void> {
+    try {
+      const accountPath = join(process.cwd(), '.data', 'substack-account.json')
+      if (!existsSync(accountPath)) return
+      const account = JSON.parse(readFileSync(accountPath, 'utf-8'))
+      account.publicationUrl = url.split('/p/')[0]
+      const match = url.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)
+      if (match?.[1]) account.handle = match[1]
+      const { writeFileSync } = await import('fs')
+      writeFileSync(accountPath, JSON.stringify(account, null, 2))
+    } catch {
+      // Best-effort sync only.
+    }
+  }
+
   private lastLoginSuccess = 0
 
   /**
    * Check if we're logged into Substack.
    * Cached for 30 minutes after a successful login — no check needed.
-   * Otherwise navigates to the dashboard and checks if it loaded or redirected to sign-in.
+   * Otherwise checks whether the browser has a valid Substack session.
    */
   async isLoggedIn(): Promise<boolean> {
     if (Date.now() - this.lastLoginSuccess < 30 * 60 * 1000) return true
-
-    const browser = this.browser
-    try {
-      await browser.navigate(`${this.baseUrl}/publish/home`)
-      await browser.waitMs(3000)
-      const url = await browser.currentUrl()
-      const loggedIn = !url.includes('/sign-in') && !url.includes('/login')
-      if (loggedIn) this.lastLoginSuccess = Date.now()
-      return loggedIn
-    } catch {
-      return false
-    }
+    return this.hasSession()
   }
 
   /**
@@ -392,10 +464,15 @@ IMPORTANT:
       throw new Error(`Publishing failed: ${result.result?.slice(0, 200) ?? 'unknown error'}`)
     }
 
-    const url = result.result?.match(/https:\/\/[^\s"]+/)?.[0] ?? `${this.baseUrl}/p/${slug}`
+    const candidateUrl = result.result?.match(/https:\/\/[^\s"]+/)?.[0]
+    const verifiedUrl = await this.verifyPublishedArticle(opts.title, slug, candidateUrl)
+    if (!verifiedUrl) {
+      throw new Error(`Publishing could not be verified for "${opts.title}". Browser agent may have opened the publish flow without completing publication.`)
+    }
 
-    this.events.monologue(`Article published at ${url}`)
-    return { slug, url }
+    await this.persistPublicationUrl(verifiedUrl)
+    this.events.monologue(`Article published at ${verifiedUrl}`)
+    return { slug, url: verifiedUrl }
   }
 
   async publishNote(opts: {

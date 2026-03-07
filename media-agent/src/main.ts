@@ -87,7 +87,9 @@ async function initSubstackPlatform(events: EventBus, ctx: SkillContext): Promis
     try {
       const accountPath = join(ctx.dataDir, 'substack-account.json')
       const account = JSON.parse(readFileSync(accountPath, 'utf-8'))
-      substackHandle = account.handle ?? ''
+      const publicationUrl = typeof account.publicationUrl === 'string' ? account.publicationUrl : ''
+      const publicationHandle = publicationUrl.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)?.[1] ?? ''
+      substackHandle = publicationHandle || account.handle ?? ''
     } catch {}
   }
   if (!substackHandle) {

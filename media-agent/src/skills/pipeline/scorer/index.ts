@@ -26,6 +26,17 @@ const skill: Skill = {
             .sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
             .map(p => p.text)
           const topics = await scorer.scoreAndFilter(signals, recentSummaries)
+
+          // Scoring establishes a new candidate set, so clear any downstream
+          // concept/article state that may belong to an older topic.
+          ctx.state.concepts = []
+          ctx.state.bestConcept = null
+          ctx.state.critique = null
+          ctx.state.imagePaths = []
+          ctx.state.imagePrompt = null
+          ctx.state.caption = null
+          ctx.state.article = null
+          ctx.state.review = null
           ctx.state.topics = topics
           return {
             topicCount: topics.length,

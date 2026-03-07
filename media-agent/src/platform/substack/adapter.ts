@@ -28,6 +28,7 @@ export class SubstackAdapter implements PlatformAdapter {
         subtitle: metadata?.subtitle,
         headerImagePath: opts.imagePath,
       })
+      this.engagement.markContentPublished()
       return { platformId: result.slug, url: result.url }
     }
 
@@ -35,6 +36,7 @@ export class SubstackAdapter implements PlatformAdapter {
       text: opts.text,
       imagePath: opts.imagePath,
     })
+    this.engagement.markContentPublished()
     return { platformId: result.id, url: result.url }
   }
 
