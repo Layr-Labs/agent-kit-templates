@@ -111,6 +111,7 @@ export function createConfig(configPath?: string) {
       publicUrl: process.env.R2_PUBLIC_URL ?? '',
     },
 
+    browserPublishMode: process.env.BROWSER_PUBLISH_MODE || 'cdp',
     dataDir: '.data',
   }
 

@@ -145,6 +145,9 @@ IMPORTANT TOOL USAGE RULES:
 - If prior learnings or notes may be relevant, consult list_learnings/read_learning or list_notes/read_note before starting fresh research.
 - When you learn something durable from research, save it with record_learning or write_file so it persists beyond this step.
 - browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, account management, or reading PDFs.
+- For reading files already on disk (e.g. downloaded papers in /tmp/), use shell commands like 'cat' or the read_file tool. NEVER use browse to read local files — browse spawns a browser agent that cannot efficiently read files from disk.
+- Budget your steps: spend no more than 40% of your steps on research/scanning. Once you have enough material, move to writing and publishing. Do not open more than 3 browse tasks per workflow.
+- If a browse task fails or times out, do NOT retry the same approach. Use a different tool (read_article, shell, create_skill) instead.
 - NEVER navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read. Use read_article on HTML versions, or create a skill that downloads and parses PDFs programmatically.
 
 If something fails, try the correct dedicated tool again before attempting workarounds. If a tool fails twice, move on — don't burn steps on manual browser navigation for tasks that have dedicated tools.

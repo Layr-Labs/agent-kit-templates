@@ -372,6 +372,8 @@ CRITICAL:
   }): Promise<SubstackArticle> {
     this.events.monologue(`Publishing article: "${opts.title}" on Substack...`)
 
+    const useX11 = process.env.BROWSER_PUBLISH_MODE === 'x11'
+
     // Ensure we're logged in before attempting anything
     const loggedIn = await this.ensureLoggedIn()
     if (!loggedIn) {
@@ -429,8 +431,41 @@ CRITICAL:
         ? `Upload the header image. Use paste_image({ file_path: "${opts.headerImagePath}" }) or click_and_upload if needed.`
         : ''
 
-    const result = await runBrowserTask({
-      task: `Publish an article on Substack.
+    let publishResult: { success: boolean; result: string | null | undefined }
+
+    if (useX11) {
+      try {
+        const { X11Agent } = await import('browser-autopilot') as any
+        const x11 = new X11Agent()
+        const x11Result = await x11.runDetailed({
+          systemPrompt: `You are controlling a Chrome browser via X11 to publish an article on Substack.
+The editor should already be open with content loaded. You need to:
+1. Click on the title field at the top of the editor
+2. Type the title: "${opts.title}"
+${opts.subtitle ? `3. Click the subtitle field and type: "${opts.subtitle}"` : ''}
+4. Click the "Publish" button (usually top right)
+5. If a confirmation dialog appears, click "Publish" again to confirm
+6. Wait for the publish to complete
+
+Actions (ONE per message):
+ACTION: CLICK x y
+ACTION: TYPE text
+ACTION: KEY keyname
+ACTION: WAIT seconds
+ACTION: DONE summary
+ACTION: FAILED reason`,
+          maxSteps: 20,
+          stepDelayMs: 1000,
+        })
+        if (x11Result.success) {
+          this.events.monologue('Article published via X11 mode')
+        }
+        publishResult = { success: x11Result.success, result: x11Result.success ? 'published' : 'X11 publish failed' }
+      } catch (err: any) {
+        this.events.monologue(`X11 publish failed: ${err.message}, falling back to CDP`)
+        // Fall back to CDP
+        const cdpResult = await runBrowserTask({
+          task: `Publish an article on Substack.
 
 ${imageInserted ? 'The editor is already open with the header image inserted.' : `Navigate to ${this.baseUrl}/publish/post.`} You should already be logged in.
 
@@ -455,9 +490,44 @@ IMPORTANT:
 - ${imageInserted ? 'Do NOT add any images — the header image is already inserted.' : ''}
 - If not logged in, STOP and return "NOT_LOGGED_IN".
 - Do NOT search the filesystem for credentials.`,
-      browser: this.browser,
-      maxSteps: 100,
-    })
+          browser: this.browser,
+          maxSteps: 100,
+        })
+        publishResult = cdpResult
+      }
+    } else {
+      publishResult = await runBrowserTask({
+        task: `Publish an article on Substack.
+
+${imageInserted ? 'The editor is already open with the header image inserted.' : `Navigate to ${this.baseUrl}/publish/post.`} You should already be logged in.
+
+Article details:
+- Title: "${opts.title}"
+${opts.subtitle ? `- Subtitle: "${opts.subtitle}"` : ''}
+- Full article body file: ${articlePath}
+${imageNote}
+
+**paste_content** — Injects a markdown/HTML file into the editor in one shot. Call: paste_content({ file_path: "${articlePath}" }). This is MUCH faster than typing.
+
+Steps:
+1. ${imageInserted ? 'The editor is open.' : 'Navigate to the post editor'}
+2. Enter the title "${opts.title}"${opts.subtitle ? ` and subtitle "${opts.subtitle}"` : ''}
+3. ${imageInserted ? 'Content is already injected.' : `Inject the article body — call paste_content with file_path="${articlePath}"`}
+4. Verify the content looks correct (screenshot)
+5. Click "Publish" and confirm
+6. Return the published URL
+
+IMPORTANT:
+- Use paste_content for the article body — do NOT type it manually.
+- ${imageInserted ? 'Do NOT add any images — the header image is already inserted.' : ''}
+- If not logged in, STOP and return "NOT_LOGGED_IN".
+- Do NOT search the filesystem for credentials.`,
+        browser: this.browser,
+        maxSteps: 100,
+      })
+    }
+
+    const result = publishResult
 
     // Check if publishing actually succeeded
     if (!result.success || result.result?.includes('NOT_LOGGED_IN') || result.result?.includes('Not logged in')) {
