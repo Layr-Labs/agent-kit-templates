@@ -13,9 +13,10 @@ const CDP_URL = process.env.CDP_URL || `http://localhost:${CDP_PORT}`
 const BROWSER_MODEL = process.env.BROWSER_MODEL?.trim() || undefined
 // Default to hybrid — CDP for reading/DOM + X11 for input (undetectable).
 // All tools work (extract, evaluate, tabs, shell), but clicks/typing go through xdotool.
-// Set BROWSER_MODE=cdp to use pure CDP (old behavior).
-// Set BROWSER_MODE=x11 for pure X11 (no CDP tools, just screenshot+action).
-const BROWSER_MODE = (process.env.BROWSER_MODE ?? 'hybrid').toLowerCase()
+// Both "x11" and "hybrid" use the same hybrid mode (CDP reads + X11 input).
+// Set BROWSER_MODE=cdp to use pure CDP (old behavior, detectable).
+const BROWSER_MODE_RAW = (process.env.BROWSER_MODE ?? 'hybrid').toLowerCase()
+const BROWSER_MODE = BROWSER_MODE_RAW === 'cdp' ? 'cdp' : 'hybrid'
 
 function isChromeRunning(): boolean {
   try {
@@ -201,29 +202,10 @@ export async function runBrowserTask(opts: {
   timeoutMs?: number
 }): Promise<BrowserTaskResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_BROWSER_TASK_TIMEOUT_MS
-  const maxSteps = opts.maxSteps ?? 20
 
-  if (BROWSER_MODE === 'x11') {
-    // Pure X11 — no CDP tools, just screenshot+action. Undetectable but limited.
-    // Falls back to CDP if X11 fails.
-    try {
-      const result = await runWithTimeout(
-        runX11BrowserTask(opts.task, maxSteps),
-        timeoutMs,
-        'X11 browser task',
-      )
-      if (result.success) return result
-      console.log(`X11 task failed: ${result.result?.slice(0, 100)}. Falling back to CDP.`)
-    } catch (err) {
-      console.log(`X11 error: ${(err as Error).message.slice(0, 100)}. Falling back to CDP.`)
-    }
-    return runWithTimeout(runCDPBrowserTask(opts), timeoutMs, 'CDP browser task')
-  }
-
-  // hybrid (default) or cdp — both use the CDP agent loop with full tools.
-  // In hybrid mode, runAgent sets browser.inputMode = "hybrid" so all input
-  // (clicks, typing, scrolling) goes through xdotool while CDP handles
-  // reading (DOM, evaluate, extract, tabs). Undetectable + smart.
+  // Both hybrid and cdp use the CDP agent loop (full tool suite).
+  // In hybrid mode (default), runAgent sets browser.inputMode = "hybrid"
+  // so clicks/typing/scrolling go through xdotool (undetectable).
   // In cdp mode, everything goes through CDP (old behavior).
   return runWithTimeout(runCDPBrowserTask(opts), timeoutMs, 'Browser task')
 }
