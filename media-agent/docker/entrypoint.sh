@@ -153,12 +153,7 @@ echo "Working dir: $(pwd)"
 echo "Files: $(ls -la SOUL.md PROCESS.md constitution.md 2>&1)"
 echo "Main exists: $(ls -la src/main.ts 2>&1)"
 
-if [ "$PROXY_ACTIVE" = "1" ]; then
-    # Set proxy env vars so bun/node/fetch all route through gost
-    export ALL_PROXY="socks5://127.0.0.1:1080"
-    export HTTP_PROXY="socks5://127.0.0.1:1080"
-    export HTTPS_PROXY="socks5://127.0.0.1:1080"
-    echo "proxy: all traffic routed through socks5://127.0.0.1:1080"
-fi
-
+# Only Chrome is proxied (via --proxy-server flag above).
+# Bun/Node API calls (AI Gateway, EigenMail, etc.) go direct —
+# they don't need residential IPs and bun doesn't support SOCKS5 fetch.
 exec bun src/main.ts 2>&1
