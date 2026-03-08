@@ -1,8 +1,15 @@
 import { z } from 'zod'
 import type { EventBus } from '../console/events.js'
-import { installedSkillBundleSchema, installSkillBundle, removeInstalledSkill, setInstalledSkillEnabled } from '../skills/installed.js'
+import {
+  computeInstalledSkillBundleHash,
+  installedSkillBundleSchema,
+  installSkillBundle,
+  removeInstalledSkill,
+  setInstalledSkillEnabled,
+} from '../skills/installed.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import { upgradeEnvelopeSchema, verifyUpgradeRequest } from './auth.js'
+import { consumeApprovedReceipt } from './receipts.js'
 
 const installSkillRequestSchema = upgradeEnvelopeSchema.extend({
   skillInstall: installedSkillBundleSchema,
@@ -31,6 +38,7 @@ function json(status: number, body: Record<string, unknown>): Response {
 export async function handleSkillInstallUpgrade(opts: {
   headers: Record<string, string | string[] | undefined>
   body: unknown
+  dataDir: string
   installedRoot: string
   registry: SkillRegistry
   events: EventBus
@@ -41,8 +49,36 @@ export async function handleSkillInstallUpgrade(opts: {
   }
 
   const payload = parsed.data
-  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload })
+  const envelope = {
+    id: payload.id,
+    description: payload.description,
+    summary: payload.summary,
+    proposedBy: payload.proposedBy,
+    timestamp: payload.timestamp,
+    changes: payload.changes,
+  }
+  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload: envelope })
   if (authFailure) return authFailure
+
+  const receipt = await consumeApprovedReceipt({
+    dataDir: opts.dataDir,
+    payload: envelope,
+    action: 'skillInstall',
+  })
+  if (!receipt.ok) {
+    return json(409, { error: receipt.error })
+  }
+
+  const declaredHash = (() => {
+    const value = payload.changes?.skillInstall
+    if (!value || typeof value !== 'object') return undefined
+    const bundleHash = (value as Record<string, unknown>).bundleHash
+    return typeof bundleHash === 'string' ? bundleHash : undefined
+  })()
+  const computedHash = computeInstalledSkillBundleHash(payload.skillInstall)
+  if (declaredHash && declaredHash !== computedHash) {
+    return json(400, { error: `Skill install payload hash mismatch. expected=${declaredHash} computed=${computedHash}` })
+  }
 
   try {
     const installed = await installSkillBundle(opts.installedRoot, payload.skillInstall)
@@ -79,6 +115,7 @@ export async function handleSkillInstallUpgrade(opts: {
 export async function handleSkillStateUpgrade(opts: {
   headers: Record<string, string | string[] | undefined>
   body: unknown
+  dataDir: string
   installedRoot: string
   registry: SkillRegistry
   events: EventBus
@@ -89,8 +126,25 @@ export async function handleSkillStateUpgrade(opts: {
   }
 
   const payload = parsed.data
-  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload })
+  const envelope = {
+    id: payload.id,
+    description: payload.description,
+    summary: payload.summary,
+    proposedBy: payload.proposedBy,
+    timestamp: payload.timestamp,
+    changes: payload.changes,
+  }
+  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload: envelope })
   if (authFailure) return authFailure
+
+  const receipt = await consumeApprovedReceipt({
+    dataDir: opts.dataDir,
+    payload: envelope,
+    action: 'skillState',
+  })
+  if (!receipt.ok) {
+    return json(409, { error: receipt.error })
+  }
 
   try {
     const manifest = await setInstalledSkillEnabled(
@@ -127,6 +181,7 @@ export async function handleSkillStateUpgrade(opts: {
 export async function handleSkillRemoveUpgrade(opts: {
   headers: Record<string, string | string[] | undefined>
   body: unknown
+  dataDir: string
   installedRoot: string
   registry: SkillRegistry
   events: EventBus
@@ -137,8 +192,25 @@ export async function handleSkillRemoveUpgrade(opts: {
   }
 
   const payload = parsed.data
-  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload })
+  const envelope = {
+    id: payload.id,
+    description: payload.description,
+    summary: payload.summary,
+    proposedBy: payload.proposedBy,
+    timestamp: payload.timestamp,
+    changes: payload.changes,
+  }
+  const authFailure = await verifyUpgradeRequest({ headers: opts.headers, payload: envelope })
   if (authFailure) return authFailure
+
+  const receipt = await consumeApprovedReceipt({
+    dataDir: opts.dataDir,
+    payload: envelope,
+    action: 'skillRemove',
+  })
+  if (!receipt.ok) {
+    return json(409, { error: receipt.error })
+  }
 
   try {
     await removeInstalledSkill(opts.installedRoot, payload.skillRemove.name)

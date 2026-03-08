@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from 'fs/promises'
 import { join, resolve } from 'path'
 import { randomBytes } from 'crypto'
 import { privateKeyToAccount } from 'viem/accounts'
+import type { Hex } from 'viem'
 import { createConfig } from '../src/config/index.js'
 import { createDatabase } from '../src/db/index.js'
 import { EventBus } from '../src/console/events.js'
@@ -14,9 +15,14 @@ import { ScannerRegistry } from '../src/pipeline/scanner.js'
 import { AgentCompiler } from '../src/process/compiler.js'
 import { initCostTracker } from '../src/ai/tracking.js'
 import { buildCompilerSkillCatalog, buildCompilerToolCatalog } from '../src/process/tool-catalog.js'
-import { buildUpgradeSignatureMessage } from '../src/upgrade/auth.js'
 import type { AgentIdentity } from '../src/types.js'
 import { ensureInstalledSkillsRoot, getInstalledSkillsRoot } from '../src/skills/installed.js'
+import {
+  postSignedAgentUpgrade,
+  requestAgentConsent,
+  type AgentUpgradeEnvelope,
+} from '../../../agent-kit-coordinator/src/upgrade/agent-consent.ts'
+import { computeInstalledSkillBundleHash } from '../../../agent-kit-coordinator/src/upgrade/skill-bundle.ts'
 
 const TEST_MNEMONIC = 'legal winner thank year wave sausage worth useful legal winner thank yellow'
 
@@ -35,74 +41,79 @@ async function expectOk(response: Response, label: string): Promise<void> {
 
 async function main() {
   const tempRoot = await mkdtemp(join(process.cwd(), '.tmp-live-skill-'))
-  const builtinRoot = resolve(import.meta.dir, '../src/skills')
-  const soul = await readFile(resolve(process.cwd(), 'SOUL.md'), 'utf-8')
-  const processMd = await readFile(resolve(process.cwd(), 'PROCESS.md'), 'utf-8')
-  const constitution = await readFile(resolve(process.cwd(), 'constitution.md'), 'utf-8')
+  let app: Awaited<ReturnType<typeof createServer>> | undefined
+  let skills: SkillRegistry | undefined
+  let db: Awaited<ReturnType<typeof createDatabase>> | undefined
 
-  const rawConfig = createConfig(resolve(process.cwd(), 'config.toml'))
-  const config = {
-    ...rawConfig,
-    platform: 'substack' as const,
-    dataDir: tempRoot,
-  }
+  try {
+    const builtinRoot = resolve(import.meta.dir, '../src/skills')
+    const soul = await readFile(resolve(process.cwd(), 'SOUL.md'), 'utf-8')
+    const processMd = await readFile(resolve(process.cwd(), 'PROCESS.md'), 'utf-8')
+    const constitution = await readFile(resolve(process.cwd(), 'constitution.md'), 'utf-8')
 
-  const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
-  await ensureInstalledSkillsRoot(installedSkillsRoot)
+    const rawConfig = createConfig(resolve(process.cwd(), 'config.toml'))
+    const config = {
+      ...rawConfig,
+      platform: 'substack' as const,
+      dataDir: tempRoot,
+    }
 
-  const db = await createDatabase(join(tempRoot, 'agent.db'))
-  const events = new EventBus(join(tempRoot, 'events.jsonl'))
-  await events.init()
-  await initCostTracker(tempRoot, events)
+    const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
+    await ensureInstalledSkillsRoot(installedSkillsRoot)
 
-  const signalCache = new Cache<any>('signals', 20, join(tempRoot, 'cache-signals.json'))
-  const evalCache = new Cache('eval', 20, join(tempRoot, 'cache-eval.json'))
-  const imageCache = new Cache('images', 20, join(tempRoot, 'cache-images.json'))
+    db = await createDatabase(join(tempRoot, 'agent.db'))
+    const events = new EventBus(join(tempRoot, 'events.jsonl'))
+    await events.init()
+    await initCostTracker(tempRoot, events)
 
-  const identity: AgentIdentity = {
-    name: 'Smoke Test Agent',
-    tagline: 'compiler smoke test',
-    creator: '@creator',
-    constitution,
-    persona: 'A test agent.',
-    beliefs: [],
-    themes: [],
-    punchesUp: [],
-    respects: [],
-    voice: 'plain',
-    restrictions: [],
-    motto: 'test',
-  }
+    const signalCache = new Cache<any>('signals', 20, join(tempRoot, 'cache-signals.json'))
+    const evalCache = new Cache('eval', 20, join(tempRoot, 'cache-eval.json'))
+    const imageCache = new Cache('images', 20, join(tempRoot, 'cache-images.json'))
 
-  const wallet = new WalletManager(TEST_MNEMONIC)
-  const ctx = {
-    events,
-    identity,
-    config,
-    dataDir: tempRoot,
-    db,
-    wallet,
-    state: createPipelineState(db),
-    scannerRegistry: new ScannerRegistry(),
-    caches: { eval: evalCache, image: imageCache, signal: signalCache },
-  }
+    const identity: AgentIdentity = {
+      name: 'Smoke Test Agent',
+      tagline: 'compiler smoke test',
+      creator: '@creator',
+      constitution,
+      persona: 'A test agent.',
+      beliefs: [],
+      themes: [],
+      punchesUp: [],
+      respects: [],
+      voice: 'plain',
+      restrictions: [],
+      motto: 'test',
+    }
 
-  const skills = new SkillRegistry()
-  ctx.registry = skills
-  await skills.discover({
-    builtinRoot,
-    installedRoot: installedSkillsRoot,
-  })
-  await skills.initAll(ctx)
+    const wallet = new WalletManager(TEST_MNEMONIC)
+    const ctx = {
+      events,
+      identity,
+      config,
+      dataDir: tempRoot,
+      db,
+      wallet,
+      state: createPipelineState(db),
+      scannerRegistry: new ScannerRegistry(),
+      caches: { eval: evalCache, image: imageCache, signal: signalCache },
+    }
 
-  const compiler = new AgentCompiler(config, tempRoot)
-  const compileCurrentAgent = async () => compiler.compile(soul, processMd, constitution, {
-    availableSkills: buildCompilerSkillCatalog(skills.list()),
-    availableTools: buildCompilerToolCatalog(skills.installedManifests()),
-  })
+    skills = new SkillRegistry()
+    ctx.registry = skills
+    await skills.discover({
+      builtinRoot,
+      installedRoot: installedSkillsRoot,
+    })
+    await skills.initAll(ctx)
 
-  const baselineCompiled = await compileCurrentAgent()
-  console.log(`Baseline compiled hash: ${baselineCompiled.sourceHash}`)
+    const compiler = new AgentCompiler(config, tempRoot)
+    const compileCurrentAgent = async () => compiler.compile(soul, processMd, constitution, {
+      availableSkills: buildCompilerSkillCatalog(skills!.list()),
+      availableTools: buildCompilerToolCatalog(skills!.installedManifests()),
+    })
+
+    const baselineCompiled = await compileCurrentAgent()
+    console.log(`Baseline compiled hash: ${baselineCompiled.sourceHash}`)
 
   let recompiledAfterInstall: string | null = null
   let recompiledAfterDisable: string | null = null
@@ -125,33 +136,22 @@ async function main() {
     }
   })
 
-  const app = await createServer({
-    events,
-    config,
-    db,
-    identity,
-    skills,
-    wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
-  })
-  await app.listen({ port: 0, host: '127.0.0.1' })
-  const address = app.server.address()
-  assert(address && typeof address === 'object', 'Server did not start on a TCP port.')
-  const baseUrl = `http://127.0.0.1:${address.port}`
-
-  const coordinator = privateKeyToAccount(`0x${randomBytes(32).toString('hex')}`)
-  process.env.COORDINATOR_ADDRESS = coordinator.address
-
-  const signHeaders = async (payload: Record<string, unknown>) => {
-    const signature = await coordinator.signMessage({
-      message: buildUpgradeSignatureMessage(payload as any),
+    app = await createServer({
+      events,
+      config,
+      db,
+      identity,
+      skills,
+      wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
     })
-    return {
-      'content-type': 'application/json',
-      'x-address': coordinator.address,
-      'x-timestamp': String(Math.floor(Date.now() / 1000)),
-      'x-signature': signature,
-    }
-  }
+    await app.listen({ port: 0, host: '127.0.0.1' })
+    const address = app.server.address()
+    assert(address && typeof address === 'object', 'Server did not start on a TCP port.')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+
+    const coordinatorPrivateKey = `0x${randomBytes(32).toString('hex')}` as Hex
+    const coordinator = privateKeyToAccount(coordinatorPrivateKey)
+    process.env.COORDINATOR_ADDRESS = coordinator.address
 
   const arxivSkillSource = `
 import { tool } from 'ai'
@@ -262,143 +262,170 @@ const skill = {
 export default skill
 `.trim()
 
-  const installPayload = {
+  const skillInstall = {
+    manifest: {
+      apiVersion: 1 as const,
+      name: 'arxiv-skill',
+      version: '1.0.0',
+      description: 'arXiv metadata and abstract reader',
+      entrypoint: 'dist/index.mjs',
+      sourceEntrypoint: 'source/index.ts',
+      capabilities: ['network'],
+      tools: [{
+        name: 'read_arxiv_paper',
+        description: 'Fetch arXiv paper metadata and abstract by arXiv id.',
+      }],
+      enabled: true,
+    },
+    files: {
+      'source/index.ts': Buffer.from(arxivSkillSource).toString('base64'),
+      'dist/index.mjs': Buffer.from(arxivSkillArtifact).toString('base64'),
+    },
+  }
+  const bundleHash = computeInstalledSkillBundleHash(skillInstall)
+  const installPayload: AgentUpgradeEnvelope = {
     id: 'install-arxiv-skill',
     description: 'Install a creator-authored arXiv skill that reads public arXiv metadata and abstracts over HTTP. This is a narrow public-research capability and does not alter the constitution, keys, or editorial line.',
     summary: 'Install arxiv-skill v1.0.0.',
-    proposedBy: '@creator',
-    timestamp: new Date().toISOString(),
+    proposedBy: coordinator.address,
+    timestamp: String(Math.floor(Date.now() / 1000)),
     changes: {
       skillInstall: {
         name: 'arxiv-skill',
         version: '1.0.0',
-      },
-    },
-    skillInstall: {
-      manifest: {
-        apiVersion: 1,
-        name: 'arxiv-skill',
-        version: '1.0.0',
-        description: 'arXiv metadata and abstract reader',
-        entrypoint: 'dist/index.mjs',
-        sourceEntrypoint: 'source/index.ts',
         capabilities: ['network'],
         tools: [{
           name: 'read_arxiv_paper',
           description: 'Fetch arXiv paper metadata and abstract by arXiv id.',
         }],
-        enabled: true,
-      },
-      files: {
-        'source/index.ts': Buffer.from(arxivSkillSource).toString('base64'),
-        'dist/index.mjs': Buffer.from(arxivSkillArtifact).toString('base64'),
+        bundleHash,
       },
     },
   }
 
-  const consentResponse = await fetch(`${baseUrl}/upgrade/consent`, {
-    method: 'POST',
-    headers: await signHeaders(installPayload),
-    body: JSON.stringify(installPayload),
+    const unauthorizedInstall = await postSignedAgentUpgrade({
+    agentUrl: baseUrl,
+    endpoint: '/upgrade/skills/install',
+    payload: installPayload,
+    body: { ...installPayload, skillInstall },
+    coordinatorPrivateKey,
   })
-  await expectOk(consentResponse, 'Consent request failed')
-  const consentDecision = await consentResponse.json() as { accepted?: boolean; reason?: string }
-  assert(consentDecision.accepted === true, `Expected consent approval for arxiv skill install, got: ${consentDecision.reason ?? 'unknown'}`)
+    assert(unauthorizedInstall.status === 409, `Expected install without consent to fail with 409, got ${unauthorizedInstall.status}`)
 
-  const installResponse = await fetch(`${baseUrl}/upgrade/skills/install`, {
-    method: 'POST',
-    headers: await signHeaders(installPayload),
-    body: JSON.stringify(installPayload),
+    const consentDecision = await requestAgentConsent({
+    agentUrl: baseUrl,
+    payload: installPayload,
+    coordinatorPrivateKey,
   })
-  await expectOk(installResponse, 'Install failed')
-  await Promise.race([installDone, sleep(60_000).then(() => { throw new Error('Timed out waiting for installed-skill recompile.') })])
+    assert(consentDecision.accepted === true, `Expected consent approval for arxiv skill install, got: ${consentDecision.reason ?? 'unknown'}`)
 
-  assert(recompiledAfterInstall, 'Expected the skill install to trigger recompilation.')
-  assert(recompiledAfterInstall !== baselineCompiled.sourceHash, 'Expected install to change compiled source hash.')
+    const installResponse = await postSignedAgentUpgrade({
+    agentUrl: baseUrl,
+    endpoint: '/upgrade/skills/install',
+    payload: installPayload,
+    body: { ...installPayload, skillInstall },
+    coordinatorPrivateKey,
+  })
+    await expectOk(installResponse, 'Install failed')
+    await Promise.race([installDone, sleep(60_000).then(() => { throw new Error('Timed out waiting for installed-skill recompile.') })])
 
-  const afterInstallSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
-  assert(afterInstallSkills.activeSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Installed skill missing from active skill list.')
-  assert(afterInstallSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill' && skill.enabled !== false), 'Installed skill missing from installed inventory.')
+    assert(recompiledAfterInstall, 'Expected the skill install to trigger recompilation.')
+    assert(recompiledAfterInstall !== baselineCompiled.sourceHash, 'Expected install to change compiled source hash.')
 
-  const arxivTool = skills.tools.read_arxiv_paper as { execute: (input: { arxiv_id: string }) => Promise<{
+    const afterInstallSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
+    assert(afterInstallSkills.activeSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Installed skill missing from active skill list.')
+    assert(afterInstallSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill' && skill.enabled !== false), 'Installed skill missing from installed inventory.')
+
+    const arxivTool = skills.tools.read_arxiv_paper as { execute: (input: { arxiv_id: string }) => Promise<{
     found: boolean
     title?: string
     abstract?: string
     url?: string
   }> } | undefined
-  assert(arxivTool, 'read_arxiv_paper tool should be available after install.')
-  const paper = await arxivTool.execute({ arxiv_id: '1706.03762' })
-  assert(paper.found === true, 'read_arxiv_paper should find a known arXiv paper.')
-  assert((paper.title ?? '').length > 10, 'read_arxiv_paper should return a non-trivial title.')
-  assert((paper.abstract ?? '').length > 50, 'read_arxiv_paper should return a non-trivial abstract.')
-  assert((paper.url ?? '').includes('1706.03762'), 'read_arxiv_paper should return the arXiv URL.')
+    assert(arxivTool, 'read_arxiv_paper tool should be available after install.')
+    const paper = await arxivTool.execute({ arxiv_id: '1706.03762' })
+    assert(paper.found === true, 'read_arxiv_paper should find a known arXiv paper.')
+    assert((paper.title ?? '').length > 10, 'read_arxiv_paper should return a non-trivial title.')
+    assert((paper.abstract ?? '').length > 50, 'read_arxiv_paper should return a non-trivial abstract.')
+    assert((paper.url ?? '').includes('1706.03762'), 'read_arxiv_paper should return the arXiv URL.')
 
-  const disablePayload = {
+  const disablePayload: AgentUpgradeEnvelope = {
     id: 'disable-arxiv-skill',
     description: 'Disable the arXiv skill.',
     summary: 'Disable arxiv-skill.',
-    proposedBy: '@creator',
-    timestamp: new Date().toISOString(),
+    proposedBy: coordinator.address,
+    timestamp: String(Math.floor(Date.now() / 1000)),
     changes: {
       skillState: {
         name: 'arxiv-skill',
         enabled: false,
       },
     },
-    skillState: {
-      name: 'arxiv-skill',
-      enabled: false,
-    },
   }
 
-  const disableResponse = await fetch(`${baseUrl}/upgrade/skills/set-state`, {
-    method: 'POST',
-    headers: await signHeaders(disablePayload),
-    body: JSON.stringify(disablePayload),
+    const disableConsent = await requestAgentConsent({
+    agentUrl: baseUrl,
+    payload: disablePayload,
+    coordinatorPrivateKey,
   })
-  await expectOk(disableResponse, 'Disable failed')
-  await Promise.race([disableDone, sleep(60_000).then(() => { throw new Error('Timed out waiting for disabled-skill recompile.') })])
+    assert(disableConsent.accepted === true, `Expected consent approval for arxiv skill disable, got: ${disableConsent.reason ?? 'unknown'}`)
 
-  assert(recompiledAfterDisable === baselineCompiled.sourceHash, 'Expected disabling the only installed skill to restore the baseline compile hash.')
+    const disableResponse = await postSignedAgentUpgrade({
+    agentUrl: baseUrl,
+    endpoint: '/upgrade/skills/set-state',
+    payload: disablePayload,
+    body: { ...disablePayload, skillState: { name: 'arxiv-skill', enabled: false } },
+    coordinatorPrivateKey,
+  })
+    await expectOk(disableResponse, 'Disable failed')
+    await Promise.race([disableDone, sleep(60_000).then(() => { throw new Error('Timed out waiting for disabled-skill recompile.') })])
 
-  const afterDisableSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
-  assert(!afterDisableSkills.activeSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Disabled skill should not be active.')
-  assert(afterDisableSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill' && skill.enabled === false), 'Disabled skill should remain visible in installed inventory.')
-  assert(!('read_arxiv_paper' in skills.tools), 'read_arxiv_paper tool should be unavailable after disable.')
+    assert(recompiledAfterDisable === baselineCompiled.sourceHash, 'Expected disabling the only installed skill to restore the baseline compile hash.')
 
-  const removePayload = {
+    const afterDisableSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
+    assert(!afterDisableSkills.activeSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Disabled skill should not be active.')
+    assert(afterDisableSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill' && skill.enabled === false), 'Disabled skill should remain visible in installed inventory.')
+    assert(!('read_arxiv_paper' in skills.tools), 'read_arxiv_paper tool should be unavailable after disable.')
+
+  const removePayload: AgentUpgradeEnvelope = {
     id: 'remove-arxiv-skill',
     description: 'Remove the arXiv skill.',
     summary: 'Remove arxiv-skill.',
-    proposedBy: '@creator',
-    timestamp: new Date().toISOString(),
+    proposedBy: coordinator.address,
+    timestamp: String(Math.floor(Date.now() / 1000)),
     changes: {
       skillRemove: {
         name: 'arxiv-skill',
       },
     },
-    skillRemove: {
-      name: 'arxiv-skill',
-    },
   }
 
-  const removeResponse = await fetch(`${baseUrl}/upgrade/skills/remove`, {
-    method: 'POST',
-    headers: await signHeaders(removePayload),
-    body: JSON.stringify(removePayload),
+    const removeConsent = await requestAgentConsent({
+    agentUrl: baseUrl,
+    payload: removePayload,
+    coordinatorPrivateKey,
   })
-  await expectOk(removeResponse, 'Remove failed')
+    assert(removeConsent.accepted === true, `Expected consent approval for arxiv skill removal, got: ${removeConsent.reason ?? 'unknown'}`)
 
-  const afterRemoveSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
-  assert(!afterRemoveSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Removed skill should disappear from installed inventory.')
+    const removeResponse = await postSignedAgentUpgrade({
+    agentUrl: baseUrl,
+    endpoint: '/upgrade/skills/remove',
+    payload: removePayload,
+    body: { ...removePayload, skillRemove: { name: 'arxiv-skill' } },
+    coordinatorPrivateKey,
+  })
+    await expectOk(removeResponse, 'Remove failed')
 
-  console.log('Live arxiv-skill consent/install/hot-reload smoke test passed.')
+    const afterRemoveSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
+    assert(!afterRemoveSkills.installedSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Removed skill should disappear from installed inventory.')
 
-  await app.close()
-  await skills.shutdownAll()
-  db.close()
-  await rm(tempRoot, { recursive: true, force: true })
-  process.exit(0)
+    console.log('Live arxiv-skill consent/install/hot-reload smoke test passed.')
+  } finally {
+    await app?.close().catch(() => {})
+    await skills?.shutdownAll().catch(() => {})
+    db?.close()
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 main().catch(async (err) => {

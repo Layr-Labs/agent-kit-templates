@@ -103,6 +103,7 @@ export async function createServer(opts: {
     const response = await handleSkillInstallUpgrade({
       headers: request.headers as Record<string, string | string[] | undefined>,
       body: request.body,
+      dataDir: config.dataDir,
       installedRoot: installedSkillsRoot,
       registry: skills,
       events,
@@ -118,6 +119,7 @@ export async function createServer(opts: {
     const response = await handleSkillStateUpgrade({
       headers: request.headers as Record<string, string | string[] | undefined>,
       body: request.body,
+      dataDir: config.dataDir,
       installedRoot: installedSkillsRoot,
       registry: skills,
       events,
@@ -133,6 +135,7 @@ export async function createServer(opts: {
     const response = await handleSkillRemoveUpgrade({
       headers: request.headers as Record<string, string | string[] | undefined>,
       body: request.body,
+      dataDir: config.dataDir,
       installedRoot: installedSkillsRoot,
       registry: skills,
       events,

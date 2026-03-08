@@ -24,6 +24,37 @@ export const installedSkillBundleSchema = z.object({
   files: z.record(z.string(), z.string()),
 })
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+    return `{${entries.join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+export function computeInstalledSkillBundleHash(bundle: {
+  manifest: InstalledSkillManifest
+  files: Record<string, string>
+}): string {
+  const hash = createHash('sha256')
+  hash.update(stableStringify(bundle.manifest))
+
+  const entries = Object.entries(bundle.files).sort(([a], [b]) => a.localeCompare(b))
+  for (const [relativePath, contentBase64] of entries) {
+    hash.update('\0')
+    hash.update(relativePath)
+    hash.update('\0')
+    hash.update(Buffer.from(contentBase64, 'base64'))
+  }
+
+  return hash.digest('hex')
+}
+
 export function getInstalledSkillsRoot(dataDir: string): string {
   return resolve(process.cwd(), dataDir, 'skills', 'installed')
 }
@@ -79,7 +110,10 @@ export async function installSkillBundle(
   await rm(skillDir, { recursive: true, force: true })
   await mkdir(skillDir, { recursive: true })
 
-  const bundleHash = createHash('sha256')
+  const bundleHash = computeInstalledSkillBundleHash({
+    manifest: parsed.manifest,
+    files: parsed.files,
+  })
 
   for (const [relativePath, contentBase64] of Object.entries(parsed.files)) {
     if (!relativePath || relativePath.startsWith('/') || relativePath.includes('..')) {
@@ -92,9 +126,6 @@ export async function installSkillBundle(
     }
 
     const content = Buffer.from(contentBase64, 'base64')
-    bundleHash.update(relativePath)
-    bundleHash.update('\0')
-    bundleHash.update(content)
 
     await mkdir(dirname(outputPath), { recursive: true })
     await writeFile(outputPath, content)
@@ -138,7 +169,7 @@ export async function installSkillBundle(
   return {
     manifest: parsed.manifest,
     skillDir,
-    bundleHash: bundleHash.digest('hex'),
+    bundleHash,
   }
 }
 

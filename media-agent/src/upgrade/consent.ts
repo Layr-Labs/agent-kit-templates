@@ -7,6 +7,7 @@ import type { EventBus } from '../console/events.js'
 import type { AgentIdentity } from '../types.js'
 import { generateTrackedText } from '../ai/tracking.js'
 import { upgradeEnvelopeSchema, verifyUpgradeRequest, type UpgradeEnvelope } from './auth.js'
+import { recordApprovedReceipt } from './receipts.js'
 
 const consentDecisionSchema = z.object({
   accepted: z.boolean(),
@@ -133,9 +134,21 @@ If you accept, explain why it is still aligned with the current constitution and
     reason: 'Could not produce a structured consent decision.',
   }
 
+  let receipt: { proposalId: string; expiresAt: number } | undefined
+  if (decision.accepted) {
+    const stored = await recordApprovedReceipt(config.dataDir, payload)
+    receipt = {
+      proposalId: stored.proposalId,
+      expiresAt: stored.expiresAt,
+    }
+  }
+
   events.monologue(
     `Upgrade consent ${decision.accepted ? 'approved' : 'rejected'}: ${decision.reason.slice(0, 180)}`,
   )
 
-  return json(200, decision)
+  return json(200, {
+    ...decision,
+    receipt,
+  })
 }
