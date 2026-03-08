@@ -98,10 +98,12 @@ CHROME_ARGS=(
 )
 
 if [ "$PROXY_ACTIVE" = "1" ]; then
-    CHROME_ARGS+=(--proxy-server="socks5://127.0.0.1:1080")
+    # Launch Chrome through proxychains — all TCP intercepted at libc level.
+    # No --proxy-server flag needed. Chrome has zero awareness of the proxy.
+    proxychains4 -q google-chrome-stable "${CHROME_ARGS[@]}" about:blank &
+else
+    google-chrome-stable "${CHROME_ARGS[@]}" about:blank &
 fi
-
-google-chrome-stable "${CHROME_ARGS[@]}" about:blank &
 
 echo "Waiting for Chrome..."
 for i in $(seq 1 30); do
@@ -152,4 +154,9 @@ echo "Node/Bun version: $(bun --version 2>&1)"
 echo "Working dir: $(pwd)"
 echo "Files: $(ls -la SOUL.md PROCESS.md constitution.md 2>&1)"
 echo "Main exists: $(ls -la src/main.ts 2>&1)"
-exec bun src/main.ts 2>&1
+if [ "$PROXY_ACTIVE" = "1" ]; then
+    echo "proxy: all traffic routed through proxychains"
+    exec proxychains4 -q bun src/main.ts 2>&1
+else
+    exec bun src/main.ts 2>&1
+fi
