@@ -251,24 +251,20 @@ async function main() {
   const loop = new AgentLoop(events, executor, skills, config, identity)
 
   skills.setInstalledSkillsReloadHandler(async ({ added, removed, reloaded }) => {
-    try {
-      const nextCompiled = await compileCurrentAgent()
-      const runtimeValidation = validateCompiledAgent(nextCompiled, {
-        availableSkillNames: skills.names,
-        availableToolNames: Object.keys(skills.tools),
-        platform: config.platform,
-      })
-      if (!runtimeValidation.ok) {
-        throw new Error(runtimeValidation.errors.join(' | '))
-      }
-
-      executor.replacePlan(nextCompiled.plan, nextCompiled.creativeProcess)
-
-      const changed = [...added, ...removed, ...reloaded]
-      events.monologue(`Recompiled workflow plan after skill refresh${changed.length > 0 ? ` (${changed.join(', ')})` : ''}.`)
-    } catch (err) {
-      events.monologue(`Skill refresh loaded, but recompiling the workflow plan failed: ${(err as Error).message}. Keeping the previous plan.`)
+    const nextCompiled = await compileCurrentAgent()
+    const runtimeValidation = validateCompiledAgent(nextCompiled, {
+      availableSkillNames: skills.names,
+      availableToolNames: Object.keys(skills.tools),
+      platform: config.platform,
+    })
+    if (!runtimeValidation.ok) {
+      throw new Error(runtimeValidation.errors.join(' | '))
     }
+
+    executor.replacePlan(nextCompiled.plan, nextCompiled.creativeProcess)
+
+    const changed = [...added, ...removed, ...reloaded]
+    events.monologue(`Recompiled workflow plan after skill refresh${changed.length > 0 ? ` (${changed.join(', ')})` : ''}.`)
   })
   skills.startHotReload({
     installedRoot: installedSkillsRoot,

@@ -1,12 +1,14 @@
 import { createHash } from 'crypto'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises'
-import { dirname, resolve } from 'path'
+import { dirname, relative, resolve } from 'path'
 import { z } from 'zod'
 import type { InstalledSkillManifest } from './types.js'
 
+const installedSkillNameSchema = z.string().min(1).max(64).regex(/^[a-z0-9-]+$/)
+
 const installedSkillManifestSchema = z.object({
   apiVersion: z.literal(1),
-  name: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+  name: installedSkillNameSchema,
   version: z.string().min(1).max(64),
   description: z.string().min(1).max(500),
   entrypoint: z.string().min(1),
@@ -23,6 +25,18 @@ export const installedSkillBundleSchema = z.object({
   manifest: installedSkillManifestSchema,
   files: z.record(z.string(), z.string()),
 })
+
+function resolveWithinRoot(root: string, ...segments: string[]): string {
+  const resolvedRoot = resolve(root)
+  const candidate = resolve(resolvedRoot, ...segments)
+  const rel = relative(resolvedRoot, candidate)
+
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
+    throw new Error('Invalid installed skill path.')
+  }
+
+  return candidate
+}
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
@@ -102,10 +116,7 @@ export async function installSkillBundle(
   const parsed = installedSkillBundleSchema.parse(bundle)
   await ensureInstalledSkillsRoot(installedRoot)
 
-  const skillDir = resolve(installedRoot, parsed.manifest.name)
-  if (!skillDir.startsWith(installedRoot)) {
-    throw new Error('Invalid installed skill path.')
-  }
+  const skillDir = resolveWithinRoot(installedRoot, parsed.manifest.name)
 
   await rm(skillDir, { recursive: true, force: true })
   await mkdir(skillDir, { recursive: true })
@@ -120,10 +131,7 @@ export async function installSkillBundle(
       throw new Error(`Invalid skill file path: ${relativePath}`)
     }
 
-    const outputPath = resolve(skillDir, relativePath)
-    if (!outputPath.startsWith(skillDir)) {
-      throw new Error(`Invalid skill file path: ${relativePath}`)
-    }
+    const outputPath = resolveWithinRoot(skillDir, relativePath)
 
     const content = Buffer.from(contentBase64, 'base64')
 
@@ -131,14 +139,8 @@ export async function installSkillBundle(
     await writeFile(outputPath, content)
   }
 
-  const entrypointPath = resolve(skillDir, parsed.manifest.entrypoint)
-  const sourceEntrypointPath = resolve(skillDir, parsed.manifest.sourceEntrypoint)
-  if (!entrypointPath.startsWith(skillDir)) {
-    throw new Error('Invalid manifest entrypoint path.')
-  }
-  if (!sourceEntrypointPath.startsWith(skillDir)) {
-    throw new Error('Invalid manifest sourceEntrypoint path.')
-  }
+  const entrypointPath = resolveWithinRoot(skillDir, parsed.manifest.entrypoint)
+  const sourceEntrypointPath = resolveWithinRoot(skillDir, parsed.manifest.sourceEntrypoint)
   if (!parsed.manifest.entrypoint.endsWith('.mjs')) {
     throw new Error('Installed skill entrypoint must be a .mjs artifact.')
   }
@@ -178,10 +180,11 @@ export async function setInstalledSkillEnabled(
   name: string,
   enabled: boolean,
 ): Promise<InstalledSkillManifest> {
-  const skillDir = resolve(installedRoot, name)
+  const parsedName = installedSkillNameSchema.parse(name)
+  const skillDir = resolveWithinRoot(installedRoot, parsedName)
   const manifest = await readInstalledSkillManifest(skillDir)
   if (!manifest) {
-    throw new Error(`Installed skill not found: ${name}`)
+    throw new Error(`Installed skill not found: ${parsedName}`)
   }
 
   const next = { ...manifest, enabled }
@@ -190,9 +193,7 @@ export async function setInstalledSkillEnabled(
 }
 
 export async function removeInstalledSkill(installedRoot: string, name: string): Promise<void> {
-  const skillDir = resolve(installedRoot, name)
-  if (!skillDir.startsWith(installedRoot)) {
-    throw new Error('Invalid installed skill path.')
-  }
+  const parsedName = installedSkillNameSchema.parse(name)
+  const skillDir = resolveWithinRoot(installedRoot, parsedName)
   await rm(skillDir, { recursive: true, force: true })
 }

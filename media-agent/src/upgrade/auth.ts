@@ -19,6 +19,19 @@ function json(status: number, body: Record<string, unknown>): Response {
   })
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+    return `{${entries.join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 export function buildUpgradeSignatureMessage(payload: UpgradeEnvelope): string {
   return [
     'agent-upgrade-consent',
@@ -27,6 +40,7 @@ export function buildUpgradeSignatureMessage(payload: UpgradeEnvelope): string {
     payload.proposedBy,
     payload.summary,
     payload.description,
+    stableStringify(payload.changes ?? {}),
   ].join('\n')
 }
 
@@ -45,12 +59,16 @@ export async function verifyUpgradeRequest(opts: {
     return json(401, { error: 'Missing coordinator auth headers.' })
   }
 
+  if (timestamp !== opts.payload.timestamp) {
+    return json(401, { error: 'Signed payload timestamp does not match the request header.' })
+  }
+
   const expectedAddress = process.env.COORDINATOR_ADDRESS?.toLowerCase()
   if (expectedAddress && address.toLowerCase() !== expectedAddress) {
     return json(403, { error: 'Unexpected coordinator address.' })
   }
 
-  const ts = Number(timestamp)
+  const ts = Number(opts.payload.timestamp)
   if (!Number.isFinite(ts)) {
     return json(400, { error: 'Invalid timestamp.' })
   }

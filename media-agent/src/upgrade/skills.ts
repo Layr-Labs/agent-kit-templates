@@ -75,8 +75,11 @@ export async function handleSkillInstallUpgrade(opts: {
     const bundleHash = (value as Record<string, unknown>).bundleHash
     return typeof bundleHash === 'string' ? bundleHash : undefined
   })()
+  if (!declaredHash) {
+    return json(400, { error: 'Skill install payload must declare changes.skillInstall.bundleHash.' })
+  }
   const computedHash = computeInstalledSkillBundleHash(payload.skillInstall)
-  if (declaredHash && declaredHash !== computedHash) {
+  if (declaredHash !== computedHash) {
     return json(400, { error: `Skill install payload hash mismatch. expected=${declaredHash} computed=${computedHash}` })
   }
 

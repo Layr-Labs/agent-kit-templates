@@ -180,7 +180,7 @@ export class SkillRegistry {
       this.hotReloadWatcher = watch(this.installedRoot, { recursive: true }, () => {
         if (this.hotReloadTimer) clearTimeout(this.hotReloadTimer)
         this.hotReloadTimer = setTimeout(() => {
-          void this.reloadInstalledSkills()
+          void this.reloadInstalledSkills().catch(() => {})
         }, 250)
       })
       console.log(`Installed skill hot reload enabled for ${this.installedRoot}`)
@@ -203,38 +203,63 @@ export class SkillRegistry {
       return
     }
 
+    const previousInstalledSkills = new Map(this.installedSkills)
+
     this.hotReloadPromise = (async () => {
-      const previousNames = new Set(this.installedSkills.keys())
+      const previousNames = new Set(previousInstalledSkills.keys())
 
       await this.shutdownAll()
-      await this.discoverInstalled(this.installedRoot!)
-      await this.initAll(this.ctx!)
+      try {
+        await this.discoverInstalled(this.installedRoot!)
+        await this.initAll(this.ctx!)
 
-      const nextNames = new Set(this.installedSkills.keys())
-      const added = [...nextNames].filter((name) => !previousNames.has(name))
-      const removed = [...previousNames].filter((name) => !nextNames.has(name))
-      const unchanged = [...nextNames].filter((name) => previousNames.has(name))
+        const nextNames = new Set(this.installedSkills.keys())
+        const added = [...nextNames].filter((name) => !previousNames.has(name))
+        const removed = [...previousNames].filter((name) => !nextNames.has(name))
+        const unchanged = [...nextNames].filter((name) => previousNames.has(name))
 
-      const summaryParts = [
-        added.length > 0 ? `added ${added.join(', ')}` : '',
-        removed.length > 0 ? `removed ${removed.join(', ')}` : '',
-        unchanged.length > 0 ? `reloaded ${unchanged.join(', ')}` : '',
-      ].filter(Boolean)
+        await this.installedSkillsReloadHandler?.({ added, removed, reloaded: unchanged })
 
-      const summary = summaryParts.length > 0
-        ? summaryParts.join(' | ')
-        : 'No installed skills enabled.'
+        const summaryParts = [
+          added.length > 0 ? `added ${added.join(', ')}` : '',
+          removed.length > 0 ? `removed ${removed.join(', ')}` : '',
+          unchanged.length > 0 ? `reloaded ${unchanged.join(', ')}` : '',
+        ].filter(Boolean)
 
-      this.ctx?.events.monologue(`Installed skills refreshed. ${summary}`)
-      await this.installedSkillsReloadHandler?.({ added, removed, reloaded: unchanged })
-    })().catch((err) => {
-      this.ctx?.events.monologue(`Installed skill reload failed: ${(err as Error).message}`)
-      console.error(`Installed skill reload failed:`, (err as Error).message)
-    }).finally(() => {
+        const summary = summaryParts.length > 0
+          ? summaryParts.join(' | ')
+          : 'No installed skills enabled.'
+
+        this.ctx?.events.monologue(`Installed skills refreshed. ${summary}`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        let restored = false
+
+        try {
+          await this.restoreInstalledRuntime(previousInstalledSkills)
+          restored = true
+        } catch (restoreErr) {
+          console.error(`Failed to restore previous installed skills:`, (restoreErr as Error).message)
+        }
+
+        this.ctx?.events.monologue(
+          `Installed skill reload failed: ${message}.${restored ? ' Restored previous runtime.' : ' Failed to restore the previous runtime.'}`,
+        )
+        console.error(`Installed skill reload failed:`, message)
+        throw err
+      }
+    })().finally(() => {
       this.hotReloadPromise = undefined
     })
 
     await this.hotReloadPromise
+  }
+
+  private async restoreInstalledRuntime(previousInstalledSkills: Map<string, RegisteredSkillRecord>): Promise<void> {
+    if (!this.ctx) return
+    await this.shutdownAll()
+    this.installedSkills = new Map(previousInstalledSkills)
+    await this.initAll(this.ctx)
   }
 
   get tools(): Record<string, Tool> {
