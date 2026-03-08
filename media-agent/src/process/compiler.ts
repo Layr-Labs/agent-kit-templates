@@ -5,6 +5,7 @@ import { JsonStore } from '../store/json-store.js'
 import type { Config } from '../config/index.js'
 import type { CompiledAgent } from './types.js'
 import { generateTrackedText } from '../ai/tracking.js'
+import type { CompilerSkillInfo, CompilerToolInfo } from './tool-catalog.js'
 
 const compiledAgentSchema = z.object({
   identity: z.object({
@@ -63,6 +64,19 @@ const compiledAgentSchema = z.object({
   }),
 })
 
+const COMPILER_VERSION = 2
+const COMPILER_PROMPT_VERSION = 2
+
+interface CompilerInputs {
+  availableSkills: CompilerSkillInfo[]
+  availableTools: CompilerToolInfo[]
+}
+
+export interface CompiledAgentValidationResult {
+  ok: boolean
+  errors: string[]
+}
+
 export class AgentCompiler {
   private store: JsonStore<CompiledAgent>
 
@@ -77,13 +91,19 @@ export class AgentCompiler {
     soul: string,
     process: string,
     constitution: string,
-    availableSkills: string[],
+    inputs: CompilerInputs,
   ): Promise<CompiledAgent> {
-    const combined = `${soul}\n---\n${process}\n---\n${constitution}`
-    const sourceHash = createHash('sha256').update(combined).digest('hex').slice(0, 16)
+    const sourceHash = this.computeSourceHash({
+      soul,
+      process,
+      constitution,
+      platform: this.config.platform,
+      availableSkills: inputs.availableSkills,
+      availableTools: inputs.availableTools,
+    })
 
     const cached = await this.store.read()
-    if (cached && cached.sourceHash === sourceHash) {
+    if (cached && cached.sourceHash === sourceHash && cached.compilerVersion === COMPILER_VERSION) {
       console.log('Agent definition unchanged — using cached compilation.')
       return cached
     }
@@ -95,7 +115,7 @@ export class AgentCompiler {
       modelId: this.config.modelId('compilation'),
       model: this.config.model('compilation'),
       output: Output.object({ schema: compiledAgentSchema }),
-      system: COMPILER_SYSTEM_PROMPT(availableSkills),
+      system: COMPILER_SYSTEM_PROMPT(inputs),
       prompt: `## SOUL (who the agent is)\n\n${soul}\n\n## PROCESS (how the agent creates)\n\n${process}\n\n## CONSTITUTION (governance rules)\n\n${constitution}`,
       providerOptions: {
         anthropic: { cacheControl: { type: 'ephemeral' } },
@@ -105,6 +125,7 @@ export class AgentCompiler {
 
     const compiled: CompiledAgent = {
       version: 1,
+      compilerVersion: COMPILER_VERSION,
       compiledAt: Date.now(),
       sourceHash,
       identity: object.identity,
@@ -115,14 +136,131 @@ export class AgentCompiler {
       creativeProcess: process,
     }
 
+    const validation = validateCompiledAgent(compiled, {
+      availableSkillNames: inputs.availableSkills.map((skill) => skill.name),
+      availableToolNames: inputs.availableTools.map((tool) => tool.name),
+      platform: this.config.platform,
+    })
+    if (!validation.ok) {
+      throw new Error(`Compiled agent failed validation: ${validation.errors.join(' | ')}`)
+    }
+
     await this.store.write(compiled)
     console.log(`Agent compiled: ${compiled.plan.workflows.length} workflows, ${compiled.plan.backgroundTasks.length} background tasks.`)
 
     return compiled
   }
+
+  private computeSourceHash(input: {
+    soul: string
+    process: string
+    constitution: string
+    platform: string
+    availableSkills: CompilerSkillInfo[]
+    availableTools: CompilerToolInfo[]
+  }): string {
+    const stable = JSON.stringify({
+      compilerVersion: COMPILER_VERSION,
+      compilerPromptVersion: COMPILER_PROMPT_VERSION,
+      platform: input.platform,
+      soul: input.soul,
+      process: input.process,
+      constitution: input.constitution,
+      availableSkills: input.availableSkills,
+      availableTools: input.availableTools,
+    })
+
+    return createHash('sha256').update(stable).digest('hex').slice(0, 16)
+  }
 }
 
-function COMPILER_SYSTEM_PROMPT(skills: string[]): string {
+export function validateCompiledAgent(
+  compiled: CompiledAgent,
+  opts: {
+    availableSkillNames: string[]
+    availableToolNames: string[]
+    platform: 'twitter' | 'substack'
+  },
+): CompiledAgentValidationResult {
+  const errors: string[] = []
+  const availableSkills = new Set(opts.availableSkillNames)
+  const availableTools = new Set(opts.availableToolNames)
+  const seenTimerKeys = new Set<string>()
+
+  for (const task of compiled.plan.backgroundTasks) {
+    if (!availableTools.has(task.tool)) {
+      errors.push(`Background task "${task.name}" references unavailable tool "${task.tool}".`)
+    }
+    if (task.skill && !availableSkills.has(task.skill)) {
+      errors.push(`Background task "${task.name}" references unavailable skill "${task.skill}".`)
+    }
+    validateTrigger(task.trigger, `Background task "${task.name}"`, seenTimerKeys, errors)
+  }
+
+  for (const workflow of compiled.plan.workflows) {
+    validateTrigger(workflow.trigger, `Workflow "${workflow.name}"`, seenTimerKeys, errors)
+
+    if (!Number.isFinite(workflow.priority)) {
+      errors.push(`Workflow "${workflow.name}" has a non-finite priority.`)
+    }
+
+    if (/\bcreate_skill\b/.test(workflow.instruction)) {
+      errors.push(`Workflow "${workflow.name}" still references deprecated tool "create_skill".`)
+    }
+
+    if (opts.platform === 'twitter' && /\bpublish_article\b/.test(workflow.instruction)) {
+      errors.push(`Workflow "${workflow.name}" references publish_article on twitter, which is unsupported.`)
+    }
+    if (opts.platform === 'twitter' && /\b(setup_substack_account|check_substack_account)\b/.test(workflow.instruction)) {
+      errors.push(`Workflow "${workflow.name}" references Substack setup tools while platform is twitter.`)
+    }
+    if (opts.platform === 'substack' && /\btopup_twitter_billing\b/.test(workflow.instruction)) {
+      errors.push(`Workflow "${workflow.name}" references Twitter billing tools while platform is substack.`)
+    }
+  }
+
+  return { ok: errors.length === 0, errors }
+}
+
+function validateTrigger(
+  trigger: { timerKey: string; intervalMs: number },
+  label: string,
+  seenTimerKeys: Set<string>,
+  errors: string[],
+): void {
+  if (!trigger.timerKey || trigger.timerKey.trim().length === 0) {
+    errors.push(`${label} is missing timerKey.`)
+  }
+  if (!Number.isFinite(trigger.intervalMs) || trigger.intervalMs <= 0) {
+    errors.push(`${label} has invalid intervalMs "${trigger.intervalMs}".`)
+  }
+  if (seenTimerKeys.has(trigger.timerKey)) {
+    errors.push(`${label} reuses timerKey "${trigger.timerKey}".`)
+  } else {
+    seenTimerKeys.add(trigger.timerKey)
+  }
+}
+
+function COMPILER_SYSTEM_PROMPT(inputs: CompilerInputs): string {
+  const skillsSection = inputs.availableSkills.length > 0
+    ? inputs.availableSkills.map((skill) => {
+        const tools = skill.tools.length > 0
+          ? ` tools: ${skill.tools.map((tool) => tool.name).join(', ')}`
+          : ''
+        const caps = skill.capabilities.length > 0
+          ? ` capabilities: ${skill.capabilities.join(', ')}`
+          : ''
+        const version = skill.version ? `@${skill.version}` : ''
+        return `- ${skill.name}${version} [${skill.source}] — ${skill.description}${tools}${caps}`
+      }).join('\n')
+    : '- none'
+
+  const toolsSection = inputs.availableTools.length > 0
+    ? inputs.availableTools.map((tool) => (
+      `| ${tool.name} | ${tool.description} | ${tool.source}${tool.skill ? ` (${tool.skill})` : ''} |`
+    )).join('\n')
+    : '| none | No tools available | n/a |'
+
   return `You are an agent compiler. You take three documents describing an autonomous agent and compile them into structured data:
 
 1. SOUL — who the agent is (personality, beliefs, style, engagement behavior)
@@ -130,53 +268,19 @@ function COMPILER_SYSTEM_PROMPT(skills: string[]): string {
 3. CONSTITUTION — governance rules (immutable constraints, financial commitments)
 
 ## Available Skills
-${skills.join(', ')}
+${skillsSection}
 
 ## Tool Reference
 
 These tools are available for the agent to use during workflow execution:
 
-| Tool | What it does |
-|---|---|
-| browse | General-purpose browser automation for research, extraction, and interaction |
-| read_article | Read and extract a single article from the web |
-| read_articles | Read and extract multiple articles from the web |
-| write_file | Persist long outputs to a file in the data directory |
-| read_file | Read a file from the data directory |
-| list_files | List files in the data directory |
-| record_learning | Save a durable research finding or lesson to the learnings directory |
-| list_learnings | List saved learning notes |
-| read_learning | Read a saved learning note |
-| write_note | Save a reusable note, draft, or working document |
-| list_notes | List saved notes |
-| read_note | Read a saved note |
-| list_skills | List loaded skills and tools |
-| create_skill | Create and hot-load a new skill when a needed capability is missing |
-| scan | Scan for signals from data sources |
-| score_signals | Score and rank signals against worldview |
-| generate_concepts | Generate creative content concepts |
-| critique_concepts | Self-critique concepts, pick the best |
-| generate_image | Generate image variants from a concept |
-| write_caption | Write a short caption for content |
-| editorial_review | Quality review gate |
-| write_article | Write long-form article content |
-| publish_image | Publish image content to platform |
-| publish_article | Publish article content to platform |
-| engage_audience | Interact with audience (replies, follows) |
-| reflect_worldview | Reflect and evolve the agent's worldview |
-| update_soul | Update the agent's SOUL.md file |
-| update_process | Update the agent's PROCESS.md file |
-| eth_balance | Check ETH balance of any address |
-| send_eth | Send ETH to an address |
-| erc20_balance | Check ERC-20 token balance |
-| get_wallet_address | Get the agent's wallet address |
-| platform_login | Log into a platform via browser automation |
-| check_card_status | Check if a prepaid card is provisioned |
-| provision_card | Buy and redeem a prepaid Visa card via Bitrefill |
-| get_card_details | Get virtual card details (number, CVV, expiry) |
-| topup_twitter_billing | Add payment card to Twitter/X billing settings |
+| Tool | What it does | Source |
+|---|---|---|
+${toolsSection}
 
 You are not limited to media publishing. Use the available tools to compile workflows for research, learning, browser-driven tasks, email, wallet operations, or file-based knowledge work when that is what the PROCESS describes.
+
+Only reference tools that are actually available. Installed skills are creator-managed upgrades. Do not invent missing tools or assume the agent can create new skills for itself at runtime.
 
 ## Compiling the PROCESS into Workflows
 

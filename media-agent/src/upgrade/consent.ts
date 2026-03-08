@@ -5,33 +5,13 @@ import { z } from 'zod'
 import type { Config } from '../config/index.js'
 import type { EventBus } from '../console/events.js'
 import type { AgentIdentity } from '../types.js'
-import { ContentSigner } from '../crypto/signer.js'
 import { generateTrackedText } from '../ai/tracking.js'
+import { upgradeEnvelopeSchema, verifyUpgradeRequest, type UpgradeEnvelope } from './auth.js'
 
 const consentDecisionSchema = z.object({
   accepted: z.boolean(),
   reason: z.string(),
 })
-
-interface ConsentPayload {
-  id: string
-  description: string
-  summary: string
-  proposedBy: string
-  timestamp: string
-  changes?: Record<string, unknown>
-}
-
-function buildConsentSignatureMessage(payload: ConsentPayload): string {
-  return [
-    'agent-upgrade-consent',
-    payload.timestamp,
-    payload.id,
-    payload.proposedBy,
-    payload.summary,
-    payload.description,
-  ].join('\n')
-}
 
 function readAgentFile(name: string): string {
   const path = resolve(process.cwd(), name)
@@ -46,6 +26,39 @@ function json(status: number, body: Record<string, unknown>): Response {
   })
 }
 
+function summarizeUpgradeChanges(changes: UpgradeEnvelope['changes']): string {
+  if (!changes || Object.keys(changes).length === 0) {
+    return 'No structured upgrade changes provided.'
+  }
+
+  const skillInstall = changes.skillInstall
+  const skillState = changes.skillState
+  const skillRemove = changes.skillRemove
+
+  const lines: string[] = []
+  if (skillInstall && typeof skillInstall === 'object') {
+    const install = skillInstall as Record<string, unknown>
+    lines.push(`Skill install: ${String(install.name ?? 'unknown')} @ ${String(install.version ?? 'unknown')}`)
+    if (Array.isArray(install.capabilities) && install.capabilities.length > 0) {
+      lines.push(`Requested capabilities: ${install.capabilities.join(', ')}`)
+    }
+  }
+  if (skillState && typeof skillState === 'object') {
+    const state = skillState as Record<string, unknown>
+    lines.push(`Skill state change: ${String(state.name ?? 'unknown')} -> enabled=${String(state.enabled)}`)
+  }
+  if (skillRemove && typeof skillRemove === 'object') {
+    const remove = skillRemove as Record<string, unknown>
+    lines.push(`Skill removal: ${String(remove.name ?? 'unknown')}`)
+  }
+
+  if (lines.length === 0) {
+    return JSON.stringify(changes, null, 2).slice(0, 2000)
+  }
+
+  return lines.join('\n')
+}
+
 export async function handleUpgradeConsent(opts: {
   headers: Record<string, string | string[] | undefined>
   body: unknown
@@ -55,59 +68,21 @@ export async function handleUpgradeConsent(opts: {
 }): Promise<Response> {
   const { headers, body, config, events, identity } = opts
 
-  const headerValue = (value: string | string[] | undefined): string =>
-    Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
-
-  const address = headerValue(headers['x-address'])
-  const timestamp = headerValue(headers['x-timestamp'])
-  const signature = headerValue(headers['x-signature'])
-
-  if (!address || !timestamp || !signature) {
-    return json(401, { error: 'Missing coordinator auth headers.' })
-  }
-
-  const expectedAddress = process.env.COORDINATOR_ADDRESS?.toLowerCase()
-  if (expectedAddress && address.toLowerCase() !== expectedAddress) {
-    return json(403, { error: 'Unexpected coordinator address.' })
-  }
-
-  const ts = Number(timestamp)
-  if (!Number.isFinite(ts)) {
-    return json(400, { error: 'Invalid timestamp.' })
-  }
-
-  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - ts)
-  if (ageSeconds > 300) {
-    return json(401, { error: 'Consent request expired.' })
-  }
-
-  const maybePayload = body as Partial<ConsentPayload> | undefined
-
-  if (!maybePayload?.description || !maybePayload.summary || !maybePayload.id || !maybePayload.proposedBy || !maybePayload.timestamp) {
+  const parsed = upgradeEnvelopeSchema.safeParse(body)
+  if (!parsed.success) {
     return json(400, { error: 'Invalid consent payload.' })
   }
 
-  const payload: ConsentPayload = {
-    id: maybePayload.id,
-    description: maybePayload.description,
-    summary: maybePayload.summary,
-    proposedBy: maybePayload.proposedBy,
-    timestamp: maybePayload.timestamp,
-    changes: maybePayload.changes,
-  }
-
-  const verified = await ContentSigner.verify(
-    buildConsentSignatureMessage(payload),
-    signature,
-    address,
-  )
-  if (!verified) {
-    return json(401, { error: 'Invalid coordinator signature.' })
+  const payload = parsed.data
+  const authFailure = await verifyUpgradeRequest({ headers, payload })
+  if (authFailure) {
+    return authFailure
   }
 
   const soul = readAgentFile('SOUL.md')
   const processMd = readAgentFile('PROCESS.md')
   const constitution = readAgentFile('constitution.md')
+  const changeSummary = summarizeUpgradeChanges(payload.changes)
 
   const { output } = await generateTrackedText({
     operation: 'upgrade_consent_review',
@@ -141,6 +116,9 @@ ${payload.description}
 
 COORDINATOR SUMMARY
 ${payload.summary}
+
+STRUCTURED CHANGES
+${changeSummary}
 
 If you reject, explain the exact principle or identity constraint being protected.
 If you accept, explain why it is still aligned with the current constitution and identity.`,

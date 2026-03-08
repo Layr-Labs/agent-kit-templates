@@ -12,11 +12,42 @@ import type { Cache } from '../cache/cache.js'
 import type { StyleConfig } from '../prompts/style.js'
 import type { BrowserLike } from '../browser/types.js'
 
+export type SkillSource = 'builtin' | 'installed'
+
+export interface SkillToolInfo {
+  name: string
+  description: string
+}
+
+export interface InstalledSkillManifest {
+  apiVersion: 1
+  name: string
+  version: string
+  description: string
+  entrypoint: string
+  sourceEntrypoint: string
+  capabilities?: string[]
+  tools?: SkillToolInfo[]
+  enabled?: boolean
+}
+
+export interface SkillInfo {
+  name: string
+  description: string
+  category: Skill['category']
+  source: SkillSource
+  version?: string
+  enabled?: boolean
+  capabilities?: string[]
+  declaredTools?: SkillToolInfo[]
+  tools: string[]
+}
+
 export interface SkillRegistryInterface {
-  register(skill: any): void
-  loadAndInit(indexPath: string, ctx: SkillContext): Promise<{ name: string; tools: string[] } | null>
   get tools(): Record<string, any>
   get names(): string[]
+  list(): SkillInfo[]
+  installedManifests(): InstalledSkillManifest[]
 }
 
 export interface SkillContext {

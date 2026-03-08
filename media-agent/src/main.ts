@@ -21,13 +21,15 @@ import { WalletManager } from './crypto/wallet.js'
 import { SkillRegistry } from './skills/registry.js'
 import { createServer } from './server/index.js'
 import { createPipelineState } from './process/state.js'
-import { AgentCompiler } from './process/compiler.js'
+import { AgentCompiler, validateCompiledAgent } from './process/compiler.js'
 import { ProcessExecutor } from './process/executor.js'
 import { JsonStore } from './store/json-store.js'
 import { initCostTracker } from './ai/tracking.js'
 import type { PlatformAdapter } from './platform/types.js'
 import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
+import { ensureInstalledSkillsRoot, getInstalledSkillsRoot } from './skills/installed.js'
+import { buildCompilerSkillCatalog, buildCompilerToolCatalog } from './process/tool-catalog.js'
 
 function sanitizeSubstackHandle(value: unknown): string {
   if (typeof value !== 'string') return ''
@@ -137,14 +139,16 @@ async function main() {
   console.log('Agent starting...')
 
   // 1. Read the three defining files
-  const soulText = readFile('SOUL.md')
-  const processText = readFile('PROCESS.md')
+  readFile('SOUL.md')
+  readFile('PROCESS.md')
   const constitutionText = readFile('constitution.md')
   console.log('Agent files loaded')
 
   // 2. Init config
   const config = createConfig()
   await mkdir(config.dataDir, { recursive: true })
+  const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
+  await ensureInstalledSkillsRoot(installedSkillsRoot)
 
   // 3. Init infrastructure
   const db = await createDatabase(join(config.dataDir, 'agent.db'))
@@ -192,11 +196,25 @@ async function main() {
   // 7. Discover all skills
   const skills = new SkillRegistry()
   ctx.registry = skills
-  await skills.discover(join(import.meta.dir, 'skills'))
+  await skills.discover({
+    builtinRoot: join(import.meta.dir, 'skills'),
+    installedRoot: installedSkillsRoot,
+  })
 
   // 8. Compile agent
   const compiler = new AgentCompiler(config, config.dataDir)
-  const compiled = await compiler.compile(soulText, processText, constitutionText, skills.names)
+  const buildCompilerInputs = () => ({
+    availableSkills: buildCompilerSkillCatalog(skills.list()),
+    availableTools: buildCompilerToolCatalog(skills.installedManifests()),
+  })
+  const compileCurrentAgent = async () => {
+    const nextSoul = readFile('SOUL.md')
+    const nextProcess = readFile('PROCESS.md')
+    const nextConstitution = readFile('constitution.md')
+    return compiler.compile(nextSoul, nextProcess, nextConstitution, buildCompilerInputs())
+  }
+
+  const compiled = await compileCurrentAgent()
   Object.assign(identity, compiled.identity)
   identity.constitution = constitutionText
   ctx.compiledStyle = compiled.style
@@ -215,6 +233,15 @@ async function main() {
   // 10. Init all skills (each creates its own internals from ctx)
   await skills.initAll(ctx)
 
+  const startupValidation = validateCompiledAgent(compiled, {
+    availableSkillNames: skills.names,
+    availableToolNames: Object.keys(skills.tools),
+    platform: config.platform,
+  })
+  if (!startupValidation.ok) {
+    throw new Error(`Compiled agent plan is invalid at startup: ${startupValidation.errors.join(' | ')}`)
+  }
+
   console.log(`Agent: ${identity.name} | Platform: ${config.platform}`)
   console.log(`Skills: ${skills.names.join(', ')}`)
   console.log(`Workflows: ${compiled.plan.workflows.map(w => w.name).join(', ')}`)
@@ -223,7 +250,39 @@ async function main() {
   const executor = new ProcessExecutor(compiled.plan, skills, ctx.state, events, config, identity, compiled.creativeProcess, config.dataDir)
   const loop = new AgentLoop(events, executor, skills, config, identity)
 
-  const app = await createServer({ events, config, db, identity, wallets: { evm: wallet.ethAddress, solana: wallet.solAddress } })
+  skills.setInstalledSkillsReloadHandler(async ({ added, removed, reloaded }) => {
+    try {
+      const nextCompiled = await compileCurrentAgent()
+      const runtimeValidation = validateCompiledAgent(nextCompiled, {
+        availableSkillNames: skills.names,
+        availableToolNames: Object.keys(skills.tools),
+        platform: config.platform,
+      })
+      if (!runtimeValidation.ok) {
+        throw new Error(runtimeValidation.errors.join(' | '))
+      }
+
+      executor.replacePlan(nextCompiled.plan, nextCompiled.creativeProcess)
+
+      const changed = [...added, ...removed, ...reloaded]
+      events.monologue(`Recompiled workflow plan after skill refresh${changed.length > 0 ? ` (${changed.join(', ')})` : ''}.`)
+    } catch (err) {
+      events.monologue(`Skill refresh loaded, but recompiling the workflow plan failed: ${(err as Error).message}. Keeping the previous plan.`)
+    }
+  })
+  skills.startHotReload({
+    installedRoot: installedSkillsRoot,
+    enabled: config.skills.hotReloadEnabled,
+  })
+
+  const app = await createServer({
+    events,
+    config,
+    db,
+    identity,
+    skills,
+    wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
+  })
   await app.listen({ port: config.port, host: '0.0.0.0' })
   console.log(`Media agent running on port ${config.port}`)
 
@@ -233,6 +292,7 @@ async function main() {
     console.log('Shutting down...')
     loop.stop()
     await Promise.all([signalCache.persist(), evalCache.persist(), imageCache.persist()])
+    skills.stopHotReload()
     await skills.shutdownAll()
     const { disconnectBrowser } = await import('./browser/index.js')
     await disconnectBrowser(ctx.browser)

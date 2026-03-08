@@ -111,6 +111,10 @@ export function createConfig(configPath?: string) {
       publicUrl: process.env.R2_PUBLIC_URL ?? '',
     },
 
+    skills: {
+      hotReloadEnabled: process.env.SKILL_HOT_RELOAD_ENABLED !== 'false',
+    },
+
     browserPublishMode: process.env.BROWSER_PUBLISH_MODE || 'cdp',
     dataDir: '.data',
   }

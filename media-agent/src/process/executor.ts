@@ -32,6 +32,13 @@ export class ProcessExecutor {
     this.personaPrompt = buildPersonaPrompt(identity)
   }
 
+  replacePlan(plan: ProcessPlan, creativeProcess?: string): void {
+    this.plan = plan
+    if (creativeProcess) {
+      this.creativeProcess = creativeProcess
+    }
+  }
+
   async init(): Promise<void> {
     const saved = await this.timerStore.read()
     if (saved) {
@@ -140,15 +147,15 @@ IMPORTANT TOOL USAGE RULES:
 - For publishing articles: ALWAYS use publish_article. Never use browse to manually navigate the Substack editor.
 - For publishing image posts: ALWAYS use publish_image. Never use browse for this.
 - For reading source articles and papers: use read_article or read_articles (fast, lightweight). For arXiv papers, use the HTML version (arxiv.org/html/<id>) with read_article — never browse to a PDF URL. Use browse only for Google searches and research that requires multi-step navigation.
-- If the workflow references a skill or capability you don't have (e.g. "PDF skill", "arxiv reader"), use create_skill to build it BEFORE attempting the task with browse. Creating a dedicated skill is always better than improvising with browser automation.
+- If the workflow references a skill or capability you don't have (e.g. "PDF skill", "arxiv reader"), do NOT invent tools or improvise a new skill. Use list_skills to confirm what is installed, then stop and report the missing creator-managed skill clearly.
 - For Substack account setup: use check_substack_account and setup_substack_account.
 - If prior learnings or notes may be relevant, consult list_learnings/read_learning or list_notes/read_note before starting fresh research.
 - When you learn something durable from research, save it with record_learning or write_file so it persists beyond this step.
 - browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, account management, or reading PDFs.
 - For reading files already on disk (e.g. downloaded papers in /tmp/), use shell commands like 'cat' or the read_file tool. NEVER use browse to read local files — browse spawns a browser agent that cannot efficiently read files from disk.
 - Budget your steps: spend no more than 40% of your steps on research/scanning. Once you have enough material, move to writing and publishing. Do not open more than 3 browse tasks per workflow.
-- If a browse task fails or times out, do NOT retry the same approach. Use a different tool (read_article, shell, create_skill) instead.
-- NEVER navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read. Use read_article on HTML versions, or create a skill that downloads and parses PDFs programmatically.
+- If a browse task fails or times out, do NOT retry the same approach. Use a different installed tool (read_article, shell, read_file) instead.
+- NEVER navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read. Use read_article on HTML versions or another already installed creator-managed tool.
 
 If something fails, try the correct dedicated tool again before attempting workarounds. If a tool fails twice, move on — don't burn steps on manual browser navigation for tasks that have dedicated tools.
 

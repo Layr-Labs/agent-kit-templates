@@ -8,17 +8,26 @@ import type { Database } from '../db/index.js'
 import { registerConsoleRoutes } from '../console/stream.js'
 import type { AgentIdentity } from '../types.js'
 import { handleUpgradeConsent } from '../upgrade/consent.js'
+import {
+  handleSkillInstallUpgrade,
+  handleSkillRemoveUpgrade,
+  handleSkillStateUpgrade,
+} from '../upgrade/skills.js'
 import { getCostTracker } from '../ai/tracking.js'
+import type { SkillRegistry } from '../skills/registry.js'
+import { getInstalledSkillsRoot, listInstalledSkillInventory } from '../skills/installed.js'
 
 export async function createServer(opts: {
   events: EventBus
   config: Config
   db: Database
   identity: AgentIdentity
+  skills: SkillRegistry
   wallets?: { evm: string; solana: string }
 }) {
-  const { events, config, db, identity, wallets } = opts
+  const { events, config, db, identity, skills, wallets } = opts
   const app = Fastify({ logger: false })
+  const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
 
   // Health
   app.get('/api/health', async () => ({
@@ -52,6 +61,14 @@ export async function createServer(opts: {
   // Identity
   app.get('/api/identity', async () => identity)
 
+  // Skills
+  app.get('/api/skills', async () => ({
+    hotReloadEnabled: config.skills.hotReloadEnabled,
+    installedRoot: installedSkillsRoot,
+    activeSkills: skills.list(),
+    installedSkills: await listInstalledSkillInventory(installedSkillsRoot),
+  }))
+
   // Wallets
   app.get('/api/wallets', async () => {
     if (!wallets) return { evm: null, solana: null }
@@ -74,6 +91,51 @@ export async function createServer(opts: {
       config,
       events,
       identity,
+    })
+    reply.code(response.status)
+    for (const [key, value] of response.headers.entries()) {
+      reply.header(key, value)
+    }
+    return response.text()
+  })
+
+  app.post('/upgrade/skills/install', async (request, reply) => {
+    const response = await handleSkillInstallUpgrade({
+      headers: request.headers as Record<string, string | string[] | undefined>,
+      body: request.body,
+      installedRoot: installedSkillsRoot,
+      registry: skills,
+      events,
+    })
+    reply.code(response.status)
+    for (const [key, value] of response.headers.entries()) {
+      reply.header(key, value)
+    }
+    return response.text()
+  })
+
+  app.post('/upgrade/skills/set-state', async (request, reply) => {
+    const response = await handleSkillStateUpgrade({
+      headers: request.headers as Record<string, string | string[] | undefined>,
+      body: request.body,
+      installedRoot: installedSkillsRoot,
+      registry: skills,
+      events,
+    })
+    reply.code(response.status)
+    for (const [key, value] of response.headers.entries()) {
+      reply.header(key, value)
+    }
+    return response.text()
+  })
+
+  app.post('/upgrade/skills/remove', async (request, reply) => {
+    const response = await handleSkillRemoveUpgrade({
+      headers: request.headers as Record<string, string | string[] | undefined>,
+      body: request.body,
+      installedRoot: installedSkillsRoot,
+      registry: skills,
+      events,
     })
     reply.code(response.status)
     for (const [key, value] of response.headers.entries()) {

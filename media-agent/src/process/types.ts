@@ -45,6 +45,7 @@ export interface CompiledGovernance {
 
 export interface CompiledAgent {
   version: number
+  compilerVersion: number
   compiledAt: number
   sourceHash: string
   identity: {

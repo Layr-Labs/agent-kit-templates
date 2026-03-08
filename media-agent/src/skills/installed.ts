@@ -1,0 +1,167 @@
+import { createHash } from 'crypto'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises'
+import { dirname, resolve } from 'path'
+import { z } from 'zod'
+import type { InstalledSkillManifest } from './types.js'
+
+const installedSkillManifestSchema = z.object({
+  apiVersion: z.literal(1),
+  name: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+  version: z.string().min(1).max(64),
+  description: z.string().min(1).max(500),
+  entrypoint: z.string().min(1),
+  sourceEntrypoint: z.string().min(1),
+  capabilities: z.array(z.string()).optional(),
+  tools: z.array(z.object({
+    name: z.string().min(1).max(128),
+    description: z.string().min(1).max(500),
+  })).optional(),
+  enabled: z.boolean().optional(),
+})
+
+export const installedSkillBundleSchema = z.object({
+  manifest: installedSkillManifestSchema,
+  files: z.record(z.string(), z.string()),
+})
+
+export function getInstalledSkillsRoot(dataDir: string): string {
+  return resolve(process.cwd(), dataDir, 'skills', 'installed')
+}
+
+export async function ensureInstalledSkillsRoot(installedRoot: string): Promise<void> {
+  await mkdir(installedRoot, { recursive: true })
+}
+
+export async function listInstalledSkillDirs(installedRoot: string): Promise<string[]> {
+  try {
+    const entries = await readdir(installedRoot, { withFileTypes: true })
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+  } catch {
+    return []
+  }
+}
+
+export async function readInstalledSkillManifest(skillDir: string): Promise<InstalledSkillManifest | null> {
+  try {
+    const raw = await readFile(resolve(skillDir, 'manifest.json'), 'utf-8')
+    const parsed = JSON.parse(raw)
+    return installedSkillManifestSchema.parse(parsed)
+  } catch {
+    return null
+  }
+}
+
+export function isSkillEnabled(manifest: InstalledSkillManifest): boolean {
+  return manifest.enabled !== false
+}
+
+export async function listInstalledSkillInventory(installedRoot: string): Promise<InstalledSkillManifest[]> {
+  const manifests: InstalledSkillManifest[] = []
+  for (const dirName of await listInstalledSkillDirs(installedRoot)) {
+    const manifest = await readInstalledSkillManifest(resolve(installedRoot, dirName))
+    if (manifest) manifests.push(manifest)
+  }
+  return manifests.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export async function installSkillBundle(
+  installedRoot: string,
+  bundle: unknown,
+): Promise<{ manifest: InstalledSkillManifest; skillDir: string; bundleHash: string }> {
+  const parsed = installedSkillBundleSchema.parse(bundle)
+  await ensureInstalledSkillsRoot(installedRoot)
+
+  const skillDir = resolve(installedRoot, parsed.manifest.name)
+  if (!skillDir.startsWith(installedRoot)) {
+    throw new Error('Invalid installed skill path.')
+  }
+
+  await rm(skillDir, { recursive: true, force: true })
+  await mkdir(skillDir, { recursive: true })
+
+  const bundleHash = createHash('sha256')
+
+  for (const [relativePath, contentBase64] of Object.entries(parsed.files)) {
+    if (!relativePath || relativePath.startsWith('/') || relativePath.includes('..')) {
+      throw new Error(`Invalid skill file path: ${relativePath}`)
+    }
+
+    const outputPath = resolve(skillDir, relativePath)
+    if (!outputPath.startsWith(skillDir)) {
+      throw new Error(`Invalid skill file path: ${relativePath}`)
+    }
+
+    const content = Buffer.from(contentBase64, 'base64')
+    bundleHash.update(relativePath)
+    bundleHash.update('\0')
+    bundleHash.update(content)
+
+    await mkdir(dirname(outputPath), { recursive: true })
+    await writeFile(outputPath, content)
+  }
+
+  const entrypointPath = resolve(skillDir, parsed.manifest.entrypoint)
+  const sourceEntrypointPath = resolve(skillDir, parsed.manifest.sourceEntrypoint)
+  if (!entrypointPath.startsWith(skillDir)) {
+    throw new Error('Invalid manifest entrypoint path.')
+  }
+  if (!sourceEntrypointPath.startsWith(skillDir)) {
+    throw new Error('Invalid manifest sourceEntrypoint path.')
+  }
+  if (!parsed.manifest.entrypoint.endsWith('.mjs')) {
+    throw new Error('Installed skill entrypoint must be a .mjs artifact.')
+  }
+  if (!parsed.manifest.sourceEntrypoint.endsWith('.ts')) {
+    throw new Error('Installed skill sourceEntrypoint must be a .ts source file.')
+  }
+
+  try {
+    const entryStat = await stat(entrypointPath)
+    if (!entryStat.isFile()) {
+      throw new Error('Entrypoint is not a file.')
+    }
+  } catch (err) {
+    throw new Error(`Installed skill entrypoint missing: ${(err as Error).message}`)
+  }
+
+  try {
+    const sourceStat = await stat(sourceEntrypointPath)
+    if (!sourceStat.isFile()) {
+      throw new Error('Source entrypoint is not a file.')
+    }
+  } catch (err) {
+    throw new Error(`Installed skill sourceEntrypoint missing: ${(err as Error).message}`)
+  }
+
+  await writeFile(resolve(skillDir, 'manifest.json'), JSON.stringify(parsed.manifest, null, 2))
+
+  return {
+    manifest: parsed.manifest,
+    skillDir,
+    bundleHash: bundleHash.digest('hex'),
+  }
+}
+
+export async function setInstalledSkillEnabled(
+  installedRoot: string,
+  name: string,
+  enabled: boolean,
+): Promise<InstalledSkillManifest> {
+  const skillDir = resolve(installedRoot, name)
+  const manifest = await readInstalledSkillManifest(skillDir)
+  if (!manifest) {
+    throw new Error(`Installed skill not found: ${name}`)
+  }
+
+  const next = { ...manifest, enabled }
+  await writeFile(resolve(skillDir, 'manifest.json'), JSON.stringify(next, null, 2))
+  return next
+}
+
+export async function removeInstalledSkill(installedRoot: string, name: string): Promise<void> {
+  const skillDir = resolve(installedRoot, name)
+  if (!skillDir.startsWith(installedRoot)) {
+    throw new Error('Invalid installed skill path.')
+  }
+  await rm(skillDir, { recursive: true, force: true })
+}

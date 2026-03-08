@@ -1,17 +1,59 @@
-import { readdir } from 'fs/promises'
-import { join } from 'path'
+import { watch, type FSWatcher } from 'fs'
+import { access, readdir } from 'fs/promises'
+import { join, resolve } from 'path'
+import { pathToFileURL } from 'url'
 import type { Tool } from 'ai'
-import type { Skill, SkillContext } from './types.js'
+import {
+  ensureInstalledSkillsRoot,
+  isSkillEnabled,
+  listInstalledSkillDirs,
+  readInstalledSkillManifest,
+} from './installed.js'
+import type {
+  Skill,
+  SkillContext,
+  SkillInfo,
+  SkillSource,
+  InstalledSkillManifest,
+} from './types.js'
+
+interface RegisteredSkillRecord {
+  skill: Skill
+  source: SkillSource
+  entrypointPath: string
+  manifest?: InstalledSkillManifest
+}
 
 export class SkillRegistry {
-  private skills = new Map<string, Skill>()
+  private builtinSkills = new Map<string, RegisteredSkillRecord>()
+  private installedSkills = new Map<string, RegisteredSkillRecord>()
   private allTools: Record<string, Tool> = {}
+  private toolNamesBySkill = new Map<string, string[]>()
+  private ctx?: SkillContext
+  private installedRoot?: string
+  private hotReloadWatcher?: FSWatcher
+  private hotReloadTimer?: ReturnType<typeof setTimeout>
+  private hotReloadPromise?: Promise<void>
+  private installedSkillsReloadHandler?: (summary: {
+    added: string[]
+    removed: string[]
+    reloaded: string[]
+  }) => Promise<void> | void
 
-  register(skill: Skill): void {
-    this.skills.set(skill.name, skill)
+  async discover(opts: {
+    builtinRoot: string
+    installedRoot?: string
+  }): Promise<void> {
+    await this.discoverBuiltin(opts.builtinRoot)
+    if (opts.installedRoot) {
+      this.installedRoot = opts.installedRoot
+      await this.discoverInstalled(opts.installedRoot)
+    }
   }
 
-  async discover(skillsDir: string): Promise<void> {
+  async discoverBuiltin(skillsDir: string): Promise<void> {
+    const next = new Map<string, RegisteredSkillRecord>()
+
     for (const category of ['agent', 'browser', 'pipeline']) {
       const categoryDir = join(skillsDir, category)
       try {
@@ -20,60 +62,179 @@ export class SkillRegistry {
           if (!entry.isDirectory()) continue
           const indexPath = join(categoryDir, entry.name, 'index.ts')
           try {
-            const mod = await import(indexPath)
-            const skill = mod.default as Skill
-            if (skill && typeof skill === 'object' && 'name' in skill && 'init' in skill) {
-              this.register(skill)
-            }
-          } catch { /* skill failed to load */ }
+            await access(indexPath)
+          } catch {
+            continue
+          }
+          const skill = await this.loadSkill(indexPath, false)
+          if (!skill) continue
+
+          next.set(skill.name, {
+            skill,
+            source: 'builtin',
+            entrypointPath: indexPath,
+          })
         }
-      } catch { /* directory doesn't exist */ }
+      } catch {
+        // Ignore missing built-in categories.
+      }
     }
+
+    this.builtinSkills = next
+  }
+
+  async discoverInstalled(installedRoot: string): Promise<void> {
+    await ensureInstalledSkillsRoot(installedRoot)
+    const next = new Map<string, RegisteredSkillRecord>()
+
+    for (const dirName of await listInstalledSkillDirs(installedRoot)) {
+      const skillDir = resolve(installedRoot, dirName)
+      const manifest = await readInstalledSkillManifest(skillDir)
+      if (!manifest || !isSkillEnabled(manifest)) continue
+
+      const entrypointPath = resolve(skillDir, manifest.entrypoint)
+      const skill = await this.loadSkill(entrypointPath, true)
+      if (!skill) continue
+
+      if (skill.name !== manifest.name) {
+        console.warn(`Installed skill "${manifest.name}" ignored because its exported name is "${skill.name}".`)
+        continue
+      }
+
+      if (this.builtinSkills.has(skill.name)) {
+        console.warn(`Installed skill "${skill.name}" overrides the built-in skill of the same name.`)
+      }
+
+      next.set(skill.name, {
+        skill,
+        source: 'installed',
+        entrypointPath,
+        manifest,
+      })
+    }
+
+    this.installedSkills = next
   }
 
   async initAll(ctx: SkillContext): Promise<Record<string, Tool>> {
-    this.allTools = {}
+    this.ctx = ctx
+    this.toolNamesBySkill.clear()
 
-    for (const [name, skill] of this.skills) {
+    const nextTools: Record<string, Tool> = {}
+
+    for (const [name, record] of this.entries()) {
+      const skill = record.skill
+
       if (skill.dependencies) {
-        for (const dep of skill.dependencies) {
-          if (!this.skills.has(dep)) {
-            console.warn(`Skill "${name}" requires "${dep}" which is not registered. Skipping.`)
-            continue
-          }
+        const available = new Set(this.names)
+        const missing = skill.dependencies.filter((dep) => !available.has(dep))
+        if (missing.length > 0) {
+          console.warn(`Skill "${name}" requires missing dependencies: ${missing.join(', ')}. Skipping.`)
+          continue
         }
       }
 
       try {
         const skillTools = await skill.init(ctx)
         for (const [toolName, tool] of Object.entries(skillTools)) {
-          this.allTools[toolName] = tool
+          nextTools[toolName] = tool
         }
+        this.toolNamesBySkill.set(name, Object.keys(skillTools))
         console.log(`Skill loaded: ${name} (${Object.keys(skillTools).length} tools)`)
       } catch (err) {
         console.error(`Skill "${name}" failed to init:`, (err as Error).message)
       }
     }
 
+    this.allTools = nextTools
     return this.allTools
   }
 
   async tickAll(): Promise<void> {
-    for (const [name, skill] of this.skills) {
-      if (skill.tick) {
+    for (const [, record] of this.entries()) {
+      if (record.skill.tick) {
         try {
-          await skill.tick()
+          await record.skill.tick()
         } catch (err) {
-          console.error(`Skill "${name}" tick failed:`, (err as Error).message)
+          console.error(`Skill "${record.skill.name}" tick failed:`, (err as Error).message)
         }
       }
     }
   }
 
   async shutdownAll(): Promise<void> {
-    for (const skill of this.skills.values()) {
-      await skill.shutdown?.()
+    for (const [, record] of this.entries()) {
+      await record.skill.shutdown?.()
     }
+    this.allTools = {}
+    this.toolNamesBySkill.clear()
+  }
+
+  startHotReload(opts?: { installedRoot?: string; enabled?: boolean }): void {
+    if (opts?.installedRoot) this.installedRoot = opts.installedRoot
+    if (opts?.enabled === false || !this.installedRoot || !this.ctx) return
+
+    this.stopHotReload()
+
+    try {
+      this.hotReloadWatcher = watch(this.installedRoot, { recursive: true }, () => {
+        if (this.hotReloadTimer) clearTimeout(this.hotReloadTimer)
+        this.hotReloadTimer = setTimeout(() => {
+          void this.reloadInstalledSkills()
+        }, 250)
+      })
+      console.log(`Installed skill hot reload enabled for ${this.installedRoot}`)
+    } catch (err) {
+      console.error(`Installed skill hot reload unavailable: ${(err as Error).message}`)
+    }
+  }
+
+  stopHotReload(): void {
+    if (this.hotReloadTimer) clearTimeout(this.hotReloadTimer)
+    this.hotReloadTimer = undefined
+    this.hotReloadWatcher?.close()
+    this.hotReloadWatcher = undefined
+  }
+
+  async reloadInstalledSkills(): Promise<void> {
+    if (!this.ctx || !this.installedRoot) return
+    if (this.hotReloadPromise) {
+      await this.hotReloadPromise
+      return
+    }
+
+    this.hotReloadPromise = (async () => {
+      const previousNames = new Set(this.installedSkills.keys())
+
+      await this.shutdownAll()
+      await this.discoverInstalled(this.installedRoot!)
+      await this.initAll(this.ctx!)
+
+      const nextNames = new Set(this.installedSkills.keys())
+      const added = [...nextNames].filter((name) => !previousNames.has(name))
+      const removed = [...previousNames].filter((name) => !nextNames.has(name))
+      const unchanged = [...nextNames].filter((name) => previousNames.has(name))
+
+      const summaryParts = [
+        added.length > 0 ? `added ${added.join(', ')}` : '',
+        removed.length > 0 ? `removed ${removed.join(', ')}` : '',
+        unchanged.length > 0 ? `reloaded ${unchanged.join(', ')}` : '',
+      ].filter(Boolean)
+
+      const summary = summaryParts.length > 0
+        ? summaryParts.join(' | ')
+        : 'No installed skills enabled.'
+
+      this.ctx?.events.monologue(`Installed skills refreshed. ${summary}`)
+      await this.installedSkillsReloadHandler?.({ added, removed, reloaded: unchanged })
+    })().catch((err) => {
+      this.ctx?.events.monologue(`Installed skill reload failed: ${(err as Error).message}`)
+      console.error(`Installed skill reload failed:`, (err as Error).message)
+    }).finally(() => {
+      this.hotReloadPromise = undefined
+    })
+
+    await this.hotReloadPromise
   }
 
   get tools(): Record<string, Tool> {
@@ -81,32 +242,59 @@ export class SkillRegistry {
   }
 
   get names(): string[] {
-    return [...this.skills.keys()]
+    return this.entries().map(([name]) => name)
   }
 
   get(name: string): Skill | undefined {
-    return this.skills.get(name)
+    return this.records().get(name)?.skill
   }
 
-  async loadAndInit(indexPath: string, ctx: SkillContext): Promise<{ name: string; tools: string[] } | null> {
+  list(): SkillInfo[] {
+    return this.entries().map(([name, record]) => ({
+      name,
+      description: record.skill.description,
+      category: record.skill.category,
+      source: record.source,
+      version: record.manifest?.version,
+      enabled: record.manifest ? isSkillEnabled(record.manifest) : true,
+      capabilities: record.manifest?.capabilities ?? [],
+      declaredTools: record.manifest?.tools ?? [],
+      tools: this.toolNamesBySkill.get(name) ?? [],
+    }))
+  }
+
+  installedManifests(): InstalledSkillManifest[] {
+    return [...this.installedSkills.values()]
+      .map((record) => record.manifest)
+      .filter((manifest): manifest is InstalledSkillManifest => !!manifest)
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  setInstalledSkillsReloadHandler(
+    handler: (summary: { added: string[]; removed: string[]; reloaded: string[] }) => Promise<void> | void,
+  ): void {
+    this.installedSkillsReloadHandler = handler
+  }
+
+  private records(): Map<string, RegisteredSkillRecord> {
+    return new Map([...this.builtinSkills, ...this.installedSkills])
+  }
+
+  private entries(): Array<[string, RegisteredSkillRecord]> {
+    return [...this.records().entries()]
+  }
+
+  private async loadSkill(entrypointPath: string, bustCache: boolean): Promise<Skill | null> {
     try {
-      // Use timestamp to bust Bun's import cache
-      const mod = await import(`${indexPath}?t=${Date.now()}`)
+      const ref = pathToFileURL(entrypointPath).href + (bustCache ? `?t=${Date.now()}` : '')
+      const mod = await import(ref)
       const skill = mod.default as Skill
-      if (!skill || !('name' in skill) || !('init' in skill)) {
+      if (!skill || typeof skill !== 'object' || !('name' in skill) || !('init' in skill)) {
         return null
       }
-
-      this.register(skill)
-      const skillTools = await skill.init(ctx)
-      for (const [toolName, tool] of Object.entries(skillTools)) {
-        this.allTools[toolName] = tool
-      }
-
-      console.log(`Skill hot-loaded: ${skill.name} (${Object.keys(skillTools).length} tools)`)
-      return { name: skill.name, tools: Object.keys(skillTools) }
+      return skill
     } catch (err) {
-      console.error(`Failed to hot-load skill from ${indexPath}:`, (err as Error).message)
+      console.error(`Failed to load skill module at ${entrypointPath}:`, (err as Error).message)
       return null
     }
   }
