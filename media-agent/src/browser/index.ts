@@ -11,6 +11,9 @@ import type { BrowserLike, BrowserLoginOptions, BrowserLoginResult, BrowserTaskR
 const CDP_PORT = Number(process.env.CDP_PORT || 9222)
 const CDP_URL = process.env.CDP_URL || `http://localhost:${CDP_PORT}`
 const BROWSER_MODEL = process.env.BROWSER_MODEL?.trim() || undefined
+// Default to X11 — undetectable by sites. Falls back to CDP if X11 fails.
+// Set BROWSER_MODE=cdp to use CDP as primary (old behavior).
+const BROWSER_MODE = (process.env.BROWSER_MODE ?? 'x11').toLowerCase()
 
 function isChromeRunning(): boolean {
   try {
@@ -130,6 +133,63 @@ export async function disconnectBrowser(browser?: BrowserLike | null): Promise<v
 
 const DEFAULT_BROWSER_TASK_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`)), timeoutMs),
+  )
+  return Promise.race([promise, timeoutPromise])
+}
+
+async function runX11BrowserTask(task: string, maxSteps: number): Promise<BrowserTaskResult> {
+  const { X11Agent } = await import('browser-autopilot') as any
+  const x11 = new X11Agent({ model: BROWSER_MODEL })
+  const result = await x11.runDetailed({
+    systemPrompt: `You are controlling a Chrome browser via X11 to complete a task.
+You receive a fresh screenshot every step. Coordinates are relative to the screenshot.
+
+Task:
+${task}
+
+Available actions (ONE per message):
+ACTION: CLICK x y
+ACTION: DOUBLE_CLICK x y
+ACTION: MOVE x y
+ACTION: DRAG x1 y1 x2 y2
+ACTION: SCROLL down pixels
+ACTION: SCROLL up pixels
+ACTION: TYPE text
+ACTION: KEY keyname
+ACTION: KEYPRESS keyname
+ACTION: PASTE_TEXT text
+ACTION: PASTE_CONTENT filepath
+ACTION: WAIT seconds
+ACTION: SCREENSHOT
+ACTION: DONE summary
+ACTION: FAILED reason
+
+Rules:
+- Click before typing if a field does not clearly have focus.
+- Keep waits short (1-3 seconds).
+- When the task is complete, say DONE followed by a short summary.
+- If blocked or stuck, say FAILED with a reason.`,
+    maxSteps,
+    stepDelayMs: 750,
+  })
+  return { result: result.result, success: result.success }
+}
+
+async function runCDPBrowserTask(opts: {
+  task: string
+  browser: BrowserLike
+  extraTools?: Record<string, any>
+  maxSteps?: number
+  sensitiveData?: Record<string, string>
+}): Promise<BrowserTaskResult> {
+  const { runAgent } = await import('browser-autopilot')
+  const result = await runAgent({ ...opts, model: BROWSER_MODEL })
+  return { result: result.result, success: result.success }
+}
+
 export async function runBrowserTask(opts: {
   task: string
   browser: BrowserLike
@@ -138,19 +198,29 @@ export async function runBrowserTask(opts: {
   sensitiveData?: Record<string, string>
   timeoutMs?: number
 }): Promise<BrowserTaskResult> {
-  const { runAgent } = await import('browser-autopilot')
   const timeoutMs = opts.timeoutMs ?? DEFAULT_BROWSER_TASK_TIMEOUT_MS
+  const maxSteps = opts.maxSteps ?? 20
 
-  const taskPromise = runAgent({ ...opts, model: BROWSER_MODEL })
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`Browser task timed out after ${timeoutMs / 1000}s`)), timeoutMs),
-  )
-
-  const result = await Promise.race([taskPromise, timeoutPromise])
-  return {
-    result: result.result,
-    success: result.success,
+  if (BROWSER_MODE === 'x11') {
+    // X11 first — undetectable. Fall back to CDP if X11 fails.
+    try {
+      const result = await runWithTimeout(
+        runX11BrowserTask(opts.task, maxSteps),
+        timeoutMs,
+        'X11 browser task',
+      )
+      if (result.success) return result
+      // X11 completed but reported failure — try CDP
+      console.log(`X11 task failed: ${result.result?.slice(0, 100)}. Falling back to CDP.`)
+    } catch (err) {
+      console.log(`X11 error: ${(err as Error).message.slice(0, 100)}. Falling back to CDP.`)
+    }
+    // CDP fallback
+    return runWithTimeout(runCDPBrowserTask(opts), timeoutMs, 'CDP browser task')
   }
+
+  // CDP mode (explicit opt-in via BROWSER_MODE=cdp)
+  return runWithTimeout(runCDPBrowserTask(opts), timeoutMs, 'Browser task')
 }
 
 export async function runBrowserLogin(opts: BrowserLoginOptions): Promise<BrowserLoginResult> {
