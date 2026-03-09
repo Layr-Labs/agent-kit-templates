@@ -77,23 +77,28 @@ async function loginViaBrowser(
   }
 
   // Step 2: Wait for OTP email by polling inbox (runs in Node, not browser)
-  // Don't rely on waitForEmail subject filters — Substack may change the format.
-  // Instead, poll inbox and look for any recent email containing a 6-digit code.
-  events.monologue('Waiting for OTP email...')
-  const otpRequestedAt = Date.now() - 5000
+  // Collect message IDs that existed BEFORE the OTP request so we skip stale codes.
+  const preExistingIds = new Set<string>()
+  try {
+    const before: any = await mail.inbox({ limit: 10 })
+    for (const m of (before?.messages ?? [])) {
+      if (m.id) preExistingIds.add(m.id)
+    }
+  } catch {}
+
+  events.monologue(`Waiting for OTP email... (${preExistingIds.size} pre-existing messages to skip)`)
 
   let code: string | null = null
   for (let attempt = 0; attempt < 40; attempt++) {
     await new Promise(r => setTimeout(r, 3000))
 
     try {
-      const inbox: any = await mail.inbox({ limit: 5 })
+      const inbox: any = await mail.inbox({ limit: 10 })
       const messages = inbox?.messages ?? []
 
       for (const msg of messages) {
-        // Skip old messages
-        const msgDate = msg.date ? new Date(msg.date).getTime() : 0
-        if (msgDate > 0 && msgDate < otpRequestedAt) continue
+        // Skip messages that existed before we requested the OTP
+        if (preExistingIds.has(msg.id)) continue
 
         // Check if it's from Substack
         const from = String(msg.from ?? '').toLowerCase()
@@ -104,6 +109,7 @@ async function loginViaBrowser(
         const subjectCode = String(msg.subject ?? '').match(/(\d{6})/)?.[1]
         if (subjectCode) {
           code = subjectCode
+          events.monologue(`Found OTP code in subject: ${msg.subject}`)
           break
         }
 
@@ -114,6 +120,7 @@ async function loginViaBrowser(
           const bodyCode = body.match(/\b(\d{6})\b/)?.[1]
           if (bodyCode) {
             code = bodyCode
+            events.monologue(`Found OTP code in body`)
             break
           }
         } catch {}
