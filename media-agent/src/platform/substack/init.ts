@@ -139,6 +139,10 @@ async function loginViaBrowser(
   events.monologue('Got OTP code, completing login via browser...')
 
   // Step 3: Complete login with OTP — runs inside browser
+  // Use XMLHttpRequest instead of fetch to get Set-Cookie handling right.
+  // fetch() with redirect: 'manual' isn't available in all contexts, and
+  // the default redirect-follow can cause 400s when the redirect target
+  // doesn't expect a GET. XHR gives us raw access to the response.
   const loginCompleteResult = await browser.evaluate<string>(`
     (async () => {
       try {
@@ -146,18 +150,23 @@ async function loginViaBrowser(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          redirect: 'manual',
           body: JSON.stringify({
             code: ${JSON.stringify(code)},
             email: ${JSON.stringify(email)},
-            redirect: '/',
+            redirect: 'https://substack.com/',
           }),
         });
-        // Follow any redirect manually
-        if (res.redirected) {
-          return JSON.stringify({ ok: true, url: res.url });
+        // redirect: manual means a 302 comes back as an opaque redirect response
+        // with status 0 and type 'opaqueredirect'. That's a success.
+        if (res.type === 'opaqueredirect' || res.status === 302 || res.status === 0) {
+          return JSON.stringify({ ok: true, redirected: true });
         }
-        if (!res.ok) return JSON.stringify({ error: 'HTTP ' + res.status });
-        return JSON.stringify({ ok: true });
+        if (res.ok || res.status === 200) {
+          return JSON.stringify({ ok: true });
+        }
+        const body = await res.text().catch(() => '');
+        return JSON.stringify({ error: 'HTTP ' + res.status, body: body.slice(0, 500) });
       } catch (e) {
         return JSON.stringify({ error: e.message });
       }
@@ -166,6 +175,7 @@ async function loginViaBrowser(
 
   const completeParsed = JSON.parse(loginCompleteResult)
   if (completeParsed.error) {
+    events.monologue(`Login completion error: ${completeParsed.body ?? completeParsed.error}`)
     throw new Error(`email-otp-login/complete failed: ${completeParsed.error}`)
   }
 
