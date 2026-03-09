@@ -23,79 +23,16 @@ async function derivePrivateKey(mnemonic: string): Promise<`0x${string}`> {
 }
 
 /**
- * Use the browser (which routes through the residential proxy) to navigate
- * to substack.com and solve the Cloudflare challenge. Returns cookies
- * including cf_clearance that can be used for subsequent API calls.
+ * Perform the full Substack login through the browser.
+ *
+ * All API calls are made inside the browser via evaluate(), which means
+ * they route through the same residential proxy and share the browser's
+ * Cloudflare session. This bypasses Cloudflare bot detection that blocks
+ * direct fetch() from datacenter IPs.
  */
-async function warmupCloudflare(browser: BrowserLike, events: EventBus): Promise<CookieEntry[]> {
-  events.monologue('Warming up Cloudflare session via browser...')
-
-  await browser.navigate('https://substack.com')
-  await browser.waitMs(5000)
-
-  // Extract cookies via CDP (document.cookie misses httpOnly cookies)
-  const cookieJson = await browser.evaluate<string>(`
-    (async () => {
-      try {
-        // Use CDP to get all cookies including httpOnly
-        const resp = await fetch('http://localhost:9222/json');
-        const targets = await resp.json();
-        const wsUrl = targets[0]?.webSocketDebuggerUrl;
-        if (!wsUrl) return JSON.stringify([]);
-
-        return new Promise((resolve) => {
-          const ws = new WebSocket(wsUrl);
-          ws.onopen = () => {
-            ws.send(JSON.stringify({ id: 1, method: 'Network.getCookies', params: { urls: ['https://substack.com', 'https://.substack.com'] } }));
-          };
-          ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.id === 1) {
-              ws.close();
-              resolve(JSON.stringify(data.result?.cookies ?? []));
-            }
-          };
-          setTimeout(() => { ws.close(); resolve(JSON.stringify([])); }, 5000);
-        });
-      } catch {
-        // Fallback: document.cookie (won't have httpOnly cookies)
-        const pairs = document.cookie.split(';').map(s => s.trim()).filter(Boolean);
-        const cookies = pairs.map(p => {
-          const [name, ...rest] = p.split('=');
-          return { name: name.trim(), value: rest.join('='), domain: '.substack.com' };
-        });
-        return JSON.stringify(cookies);
-      }
-    })()
-  `)
-
-  try {
-    const rawCookies = JSON.parse(cookieJson) as any[]
-    const cookies: CookieEntry[] = rawCookies.map(c => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain ?? '.substack.com',
-      path: c.path ?? '/',
-      secure: c.secure ?? false,
-    }))
-
-    const hasClearance = cookies.some(c => c.name === 'cf_clearance')
-    events.monologue(`Cloudflare warmup: got ${cookies.length} cookies${hasClearance ? ' (cf_clearance found)' : ''}`)
-    return cookies
-  } catch {
-    events.monologue('Cloudflare warmup: failed to parse cookies')
-    return []
-  }
-}
-
-/**
- * Perform the Substack OTP login with Cloudflare clearance cookies.
- * This replicates the substack-skill login() flow but includes
- * cf_clearance cookies in all requests to bypass Cloudflare.
- */
-async function loginWithClearance(
+async function loginViaBrowser(
   privateKey: `0x${string}`,
-  clearanceCookies: CookieEntry[],
+  browser: BrowserLike,
   cookiesPath: string,
   events: EventBus,
 ): Promise<{ cookies: CookieEntry[]; email: string }> {
@@ -106,30 +43,40 @@ async function loginWithClearance(
   const email = loginResult.email ?? (await mail.me()).email
   events.monologue(`Login email: ${email}`)
 
-  const cookieHeader = clearanceCookies.map(c => `${c.name}=${c.value}`).join('; ')
+  // Navigate to substack.com to establish Cloudflare session
+  events.monologue('Navigating to Substack (Cloudflare warmup)...')
+  await browser.navigate('https://substack.com')
+  await browser.waitMs(5000)
 
-  // Step 1: Request OTP
-  events.monologue('Requesting login OTP...')
-  const loginRes = await fetch(`${SUBSTACK_BASE}/api/v1/email-login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': DEFAULT_USER_AGENT,
-      'Cookie': cookieHeader,
-    },
-    body: JSON.stringify({
-      email,
-      redirect: '/',
-      can_create_user: true,
-    }),
-  })
+  // Step 1: Request OTP — runs inside browser (same proxy, same CF session)
+  events.monologue('Requesting login OTP via browser...')
+  const otpResult = await browser.evaluate<string>(`
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/email-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: ${JSON.stringify(email)},
+            redirect: '/',
+            can_create_user: true,
+          }),
+        });
+        if (!res.ok) return JSON.stringify({ error: 'HTTP ' + res.status });
+        return JSON.stringify({ ok: true });
+      } catch (e) {
+        return JSON.stringify({ error: e.message });
+      }
+    })()
+  `)
 
-  if (!loginRes.ok) {
-    const err = await loginRes.text()
-    throw new Error(`email-login failed (${loginRes.status}): ${err.slice(0, 200)}`)
+  const otpParsed = JSON.parse(otpResult)
+  if (otpParsed.error) {
+    throw new Error(`email-login failed: ${otpParsed.error}`)
   }
 
-  // Step 2: Wait for OTP email
+  // Step 2: Wait for OTP email (runs in Node, not browser)
   events.monologue('Waiting for OTP email...')
   const otpRequestedAt = new Date(Date.now() - 3000)
   const otpEmail: any = await mail.waitForEmail({
@@ -147,64 +94,96 @@ async function loginWithClearance(
     throw new Error(`Could not extract OTP code from email. Subject: "${otpEmail?.subject ?? 'none'}"`)
   }
 
-  events.monologue('Got OTP code, completing login...')
+  events.monologue('Got OTP code, completing login via browser...')
 
-  // Step 3: Complete login with OTP
-  const completeRes = await fetch(`${SUBSTACK_BASE}/api/v1/email-otp-login/complete`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': DEFAULT_USER_AGENT,
-      'Cookie': cookieHeader,
-    },
-    body: JSON.stringify({
-      code,
-      email,
-      redirect: `${SUBSTACK_BASE}/`,
-    }),
-    redirect: 'manual',
-  })
+  // Step 3: Complete login with OTP — runs inside browser
+  const loginCompleteResult = await browser.evaluate<string>(`
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/email-otp-login/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            code: ${JSON.stringify(code)},
+            email: ${JSON.stringify(email)},
+            redirect: '/',
+          }),
+        });
+        // Follow any redirect manually
+        if (res.redirected) {
+          return JSON.stringify({ ok: true, url: res.url });
+        }
+        if (!res.ok) return JSON.stringify({ error: 'HTTP ' + res.status });
+        return JSON.stringify({ ok: true });
+      } catch (e) {
+        return JSON.stringify({ error: e.message });
+      }
+    })()
+  `)
 
-  if (!completeRes.ok && completeRes.status !== 302) {
-    const err = await completeRes.text()
-    throw new Error(`email-otp-login/complete failed (${completeRes.status}): ${err.slice(0, 200)}`)
+  const completeParsed = JSON.parse(loginCompleteResult)
+  if (completeParsed.error) {
+    throw new Error(`email-otp-login/complete failed: ${completeParsed.error}`)
   }
 
-  // Extract session cookies from response
-  const setCookieHeaders = completeRes.headers.getSetCookie?.() ?? []
-  const sessionCookies: CookieEntry[] = []
+  // Wait for cookies to settle
+  await browser.waitMs(2000)
 
-  for (const header of setCookieHeaders) {
-    const parts = header.split(';').map(s => s.trim())
-    const [nameValue] = parts
-    const eqIdx = nameValue.indexOf('=')
-    if (eqIdx === -1) continue
+  // Extract all cookies from the browser via CDP
+  events.monologue('Extracting session cookies...')
+  const cookieJson = await browser.evaluate<string>(`
+    (async () => {
+      try {
+        const resp = await fetch('http://localhost:9222/json');
+        const targets = await resp.json();
+        const wsUrl = targets[0]?.webSocketDebuggerUrl;
+        if (!wsUrl) return JSON.stringify([]);
 
-    const name = nameValue.slice(0, eqIdx)
-    const value = nameValue.slice(eqIdx + 1)
+        return new Promise((resolve) => {
+          const ws = new WebSocket(wsUrl);
+          ws.onopen = () => {
+            ws.send(JSON.stringify({
+              id: 1,
+              method: 'Network.getCookies',
+              params: { urls: ['https://substack.com', 'https://.substack.com'] }
+            }));
+          };
+          ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.id === 1) {
+              ws.close();
+              resolve(JSON.stringify(data.result?.cookies ?? []));
+            }
+          };
+          setTimeout(() => { ws.close(); resolve(JSON.stringify([])); }, 5000);
+        });
+      } catch {
+        return JSON.stringify([]);
+      }
+    })()
+  `)
 
-    let domain = '.substack.com'
-    let path = '/'
-    let secure = false
-    for (const attr of parts.slice(1)) {
-      const lower = attr.toLowerCase()
-      if (lower.startsWith('domain=')) domain = attr.slice(7)
-      else if (lower.startsWith('path=')) path = attr.slice(5)
-      else if (lower === 'secure') secure = true
-    }
+  let cookies: CookieEntry[] = []
+  try {
+    const rawCookies = JSON.parse(cookieJson) as any[]
+    cookies = rawCookies
+      .filter((c: any) => c.domain?.includes('substack'))
+      .map((c: any) => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain ?? '.substack.com',
+        path: c.path ?? '/',
+        secure: c.secure ?? false,
+      }))
+  } catch {}
 
-    sessionCookies.push({ name, value, domain, path, secure })
+  if (cookies.length === 0) {
+    throw new Error('Login completed but no cookies could be extracted from browser.')
   }
 
-  // Merge: clearance cookies + session cookies (session cookies override)
-  const cookieMap = new Map<string, CookieEntry>()
-  for (const c of clearanceCookies) cookieMap.set(c.name, c)
-  for (const c of sessionCookies) cookieMap.set(c.name, c)
-  const allCookies = [...cookieMap.values()]
-
-  if (sessionCookies.length === 0) {
-    throw new Error('Login succeeded but no session cookies returned.')
-  }
+  const hasSession = cookies.some(c => c.name === 'substack.sid')
+  events.monologue(`Got ${cookies.length} cookies${hasSession ? ' (session found)' : ''}`)
 
   // Handle email confirmation for new accounts
   try {
@@ -214,29 +193,24 @@ async function loginWithClearance(
       (m: any) => m.subject?.toLowerCase().includes('confirm') && m.from?.toLowerCase().includes('substack'),
     )
     if (confirmMsg) {
-      events.monologue('Confirming email...')
+      events.monologue('Confirming email via browser...')
       const fullMsg: any = await mail.read(confirmMsg.id)
       const body = String(fullMsg?.body ?? '')
       const linkMatch = body.match(/(https:\/\/email\.mg[^\s"<>]*\/c\/[^\s"<>]*)/) ??
         body.match(/(https?:\/\/[^\s"<>]*substack[^\s"<>]*confirm[^\s"<>]*)/i)
       if (linkMatch) {
-        await fetch(linkMatch[1], {
-          headers: {
-            Cookie: allCookies.map(c => `${c.name}=${c.value}`).join('; '),
-            'User-Agent': DEFAULT_USER_AGENT,
-          },
-          redirect: 'follow',
-        })
+        await browser.navigate(linkMatch[1])
+        await browser.waitMs(3000)
         events.monologue('Email confirmed!')
       }
     }
   } catch {}
 
-  // Save cookies
-  await saveCookies(cookiesPath, allCookies)
-  events.monologue(`Logged in! Got ${allCookies.length} cookies.`)
+  // Save cookies for future sessions (SubstackClient can restore from these)
+  await saveCookies(cookiesPath, cookies)
+  events.monologue(`Logged in as ${email}`)
 
-  return { cookies: allCookies, email }
+  return { cookies, email }
 }
 
 /**
@@ -274,27 +248,18 @@ export async function initSubstackClient(
 
   const privateKey = await derivePrivateKey(mnemonic)
 
-  // Warm up Cloudflare via browser if available (needed for datacenter IPs)
-  let clearanceCookies: CookieEntry[] = []
   if (browser) {
-    try {
-      clearanceCookies = await warmupCloudflare(browser, events)
-    } catch (err) {
-      events.monologue(`Cloudflare warmup failed: ${(err as Error).message}`)
-    }
-  }
-
-  if (clearanceCookies.length > 0) {
-    // Login with Cloudflare clearance cookies
-    events.monologue('Logging into Substack via API (with Cloudflare clearance)...')
-    const { cookies, email } = await loginWithClearance(privateKey, clearanceCookies, cookiesPath, events)
+    // Login through the browser — all API calls route through the residential
+    // proxy, bypassing Cloudflare bot detection on datacenter IPs.
+    events.monologue('Logging into Substack via browser...')
+    const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
     events.monologue(`Logged into Substack as ${email}`)
     await client.authenticate({ cookies })
     return client
   }
 
   // Fallback: direct API login (works from residential IPs, may fail from datacenter)
-  events.monologue('Logging into Substack via API (direct)...')
+  events.monologue('Logging into Substack via API (direct, no browser)...')
   const { login } = await import('substack-skill')
   const { cookies, email } = await login({
     eigenMailPrivateKey: privateKey,
@@ -326,13 +291,8 @@ export async function refreshSession(
     const cookiesPath = join(dataDir, 'substack-cookies.json')
     const privateKey = await derivePrivateKey(mnemonic)
 
-    let clearanceCookies: CookieEntry[] = []
     if (browser) {
-      try { clearanceCookies = await warmupCloudflare(browser, events) } catch {}
-    }
-
-    if (clearanceCookies.length > 0) {
-      const { cookies, email } = await loginWithClearance(privateKey, clearanceCookies, cookiesPath, events)
+      const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
       await client.authenticate({ cookies })
       events.monologue(`Re-authenticated as ${email}`)
     } else {
