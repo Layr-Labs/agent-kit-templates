@@ -5,7 +5,7 @@ Creator skills are explicit, versioned upgrades that attach new capabilities to 
 The runtime model is:
 
 - The Docker image stays fixed.
-- `SOUL.md`, `PROCESS.md`, and `constitution.md` define the agent.
+- `SOUL.md`, `PROCESS.toml`, and `constitution.md` define the agent.
 - Installed skills add optional capabilities on top of the same runtime.
 - Skill changes should go through the upgrade flow, including constitutional consent.
 
@@ -108,7 +108,7 @@ When writing creator skills:
 Avoid:
 
 - reading secrets from random files
-- mutating `SOUL.md` or `PROCESS.md` from a generic utility skill
+- mutating `SOUL.md` or `PROCESS.toml` from a generic utility skill
 - doing browser automation when an API or CLI exists
 - broad kitchen-sink skills with many unrelated tools
 

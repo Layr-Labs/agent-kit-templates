@@ -22,4 +22,4 @@ Adds a virtual prepaid card to Twitter/X billing settings via browser automation
 
 - Browser session available (browser-autopilot)
 - Card provisioned via bitrefill skill or CARD_NUMBER/CARD_CVV/CARD_EXPIRY env vars
-- Agent logged into Twitter (via platform-login skill)
+- Agent logged into Twitter

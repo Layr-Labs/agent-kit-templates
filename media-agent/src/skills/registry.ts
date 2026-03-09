@@ -266,6 +266,49 @@ export class SkillRegistry {
     return this.allTools
   }
 
+  /**
+   * Resolve workflow-scoped tools from a list of skill names.
+   * For each skill: includes its own tools + any external tools declared in its toolScope.
+   */
+  resolveWorkflowTools(skillNames: string[]): Record<string, Tool> {
+    const result: Record<string, Tool> = {}
+    const allRecords = this.records()
+    const requestedSet = new Set(skillNames)
+
+    for (const name of skillNames) {
+      // Add the skill's own tools
+      const ownToolNames = this.toolNamesBySkill.get(name)
+      if (ownToolNames) {
+        for (const toolName of ownToolNames) {
+          if (this.allTools[toolName]) result[toolName] = this.allTools[toolName]
+        }
+      }
+
+      // Add external tools from toolScope
+      const record = allRecords.get(name)
+      if (record?.skill.toolScope) {
+        for (const toolName of record.skill.toolScope) {
+          if (this.allTools[toolName]) result[toolName] = this.allTools[toolName]
+        }
+      }
+    }
+
+    // Add tools from installed skills that declare pipelineIntegration for any requested skill
+    for (const [, record] of this.installedSkills) {
+      if (!record.manifest?.pipelineIntegration) continue
+      if (!isSkillEnabled(record.manifest)) continue
+
+      for (const [pipelineSkill, toolNames] of Object.entries(record.manifest.pipelineIntegration)) {
+        if (!requestedSet.has(pipelineSkill)) continue
+        for (const toolName of toolNames) {
+          if (this.allTools[toolName]) result[toolName] = this.allTools[toolName]
+        }
+      }
+    }
+
+    return result
+  }
+
   get names(): string[] {
     return this.entries().map(([name]) => name)
   }

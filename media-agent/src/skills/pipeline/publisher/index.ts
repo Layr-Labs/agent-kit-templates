@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
 import { join } from 'path'
 import { tool } from 'ai'
 import { z } from 'zod'
@@ -10,6 +9,10 @@ const skill: Skill = {
   name: 'publisher',
   description: 'Publishes content to the configured platform',
   category: 'pipeline',
+  toolScope: [
+    'create_draft', 'get_draft', 'update_draft', 'delete_draft',
+    'upload_image', 'publish_draft', 'list_drafts', 'post_note',
+  ],
 
   async init(ctx: SkillContext) {
     function savePost(post: Post): void {
@@ -100,16 +103,10 @@ const skill: Skill = {
       }),
 
       publish_article: tool({
-        description: 'Publish an article to the platform. If the platform account is not set up yet, this will fail and you should call setup_substack_account first.',
+        description: 'Publish an article to the platform.',
         inputSchema: z.object({}),
         execute: async () => {
           if (!ctx.platform) return { error: 'No platform configured.' }
-
-          // Check if platform account exists (for Substack)
-          const accountFile = join(ctx.dataDir, 'substack-account.json')
-          if (ctx.config.platform === 'substack' && !existsSync(accountFile)) {
-            return { error: 'Substack account not set up yet. Call setup_substack_account first to create your account and publication, then try publishing again.' }
-          }
 
           const article = ctx.state.article
           const concept = ctx.state.bestConcept
@@ -132,7 +129,7 @@ const skill: Skill = {
               metadata: { title: article.title, subtitle: article.subtitle },
             })
           } catch (err: any) {
-            return { error: `Publishing failed: ${err.message}. You may need to log in first — try calling setup_substack_account or check_substack_account.` }
+            return { error: `Publishing failed: ${err.message}` }
           }
 
           // Record as content too so dedupe/editor can see article topics in this runtime.

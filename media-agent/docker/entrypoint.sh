@@ -137,9 +137,9 @@ if [ -n "$SOUL_MD_B64" ]; then
   echo "$SOUL_MD_B64" | base64 -d > /app/SOUL.md
   echo "Injected SOUL.md from env"
 fi
-if [ -n "$PROCESS_MD_B64" ]; then
-  echo "$PROCESS_MD_B64" | base64 -d > /app/PROCESS.md
-  echo "Injected PROCESS.md from env"
+if [ -n "$PROCESS_TOML_B64" ]; then
+  echo "$PROCESS_TOML_B64" | base64 -d > /app/PROCESS.toml
+  echo "Injected PROCESS.toml from env"
 fi
 if [ -n "$CONSTITUTION_MD_B64" ]; then
   echo "$CONSTITUTION_MD_B64" | base64 -d > /app/constitution.md
@@ -150,7 +150,7 @@ fi
 echo "Starting agent..."
 echo "Node/Bun version: $(bun --version 2>&1)"
 echo "Working dir: $(pwd)"
-echo "Files: $(ls -la SOUL.md PROCESS.md constitution.md 2>&1)"
+echo "Files: $(ls -la SOUL.md PROCESS.toml constitution.md 2>&1)"
 echo "Main exists: $(ls -la src/main.ts 2>&1)"
 
 # Only Chrome is proxied (via --proxy-server flag above).

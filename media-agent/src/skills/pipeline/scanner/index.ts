@@ -6,6 +6,10 @@ const skill: Skill = {
   name: 'scanner',
   description: 'Scans configured data sources for signals',
   category: 'pipeline',
+  toolScope: [
+    'get_substack_posts', 'search_substack_posts', 'get_reader_feed',
+    'search_publications', 'get_substack_user',
+  ],
 
   async init(ctx: SkillContext) {
     return {

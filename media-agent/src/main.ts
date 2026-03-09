@@ -3,7 +3,7 @@
  *
  * A general-purpose autonomous media agent. Defined by three files:
  * - SOUL.md — who the agent is (personality, beliefs, style)
- * - PROCESS.md — how the agent creates (creative workflows)
+ * - PROCESS.toml — deterministic pipeline definition (workflows, timers, skill scoping)
  * - constitution.md — governance rules (immutable constraints)
  */
 
@@ -23,46 +23,13 @@ import { createServer } from './server/index.js'
 import { createPipelineState } from './process/state.js'
 import { AgentCompiler, validateCompiledAgent } from './process/compiler.js'
 import { ProcessExecutor } from './process/executor.js'
+import { loadProcessPlan } from './process/plan-loader.js'
 import { JsonStore } from './store/json-store.js'
 import { initCostTracker } from './ai/tracking.js'
 import type { PlatformAdapter } from './platform/types.js'
 import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
 import { ensureInstalledSkillsRoot, getInstalledSkillsRoot } from './skills/installed.js'
-import { buildCompilerSkillCatalog, buildCompilerToolCatalog } from './process/tool-catalog.js'
-
-function sanitizeSubstackHandle(value: unknown): string {
-  if (typeof value !== 'string') return ''
-
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/^https?:\/\//, '')
-    .replace(/\.substack\.com.*$/i, '')
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function deriveSubstackHandle(identity: AgentIdentity, savedAccount?: unknown): string {
-  const envHandle = sanitizeSubstackHandle(process.env.SUBSTACK_HANDLE)
-  if (envHandle) return envHandle
-
-  if (savedAccount && typeof savedAccount === 'object') {
-    const account = savedAccount as Record<string, unknown>
-    const publicationUrl = typeof account.publicationUrl === 'string' ? account.publicationUrl : ''
-    const publicationHandle = sanitizeSubstackHandle(publicationUrl.match(/^https?:\/\/([a-z0-9-]+)\.substack\.com/i)?.[1] ?? '')
-    if (publicationHandle) return publicationHandle
-
-    const savedHandle = sanitizeSubstackHandle(account.handle)
-    if (savedHandle) return savedHandle
-  }
-
-  const identityHandle = sanitizeSubstackHandle(identity.name)
-  if (identityHandle) return identityHandle
-
-  return 'agent-publication'
-}
 
 function readFile(path: string): string {
   try {
@@ -105,43 +72,35 @@ async function initTwitterPlatform(config: ReturnType<typeof createConfig>, even
   return new TwitterAdapter(twitter, engagement, twitterScanner)
 }
 
-async function initSubstackPlatform(events: EventBus, ctx: SkillContext): Promise<PlatformAdapter> {
-  const { SubstackClient } = await import('./platform/substack/client.js')
+async function initSubstackPlatform(mnemonic: string, events: EventBus, ctx: SkillContext): Promise<PlatformAdapter> {
+  const { initSubstackClient, setupPublication } = await import('./platform/substack/init.js')
   const { SubstackEngagement } = await import('./platform/substack/engagement.js')
   const { SubstackScanner } = await import('./platform/substack/scanner/index.js')
   const { SubstackAdapter } = await import('./platform/substack/adapter.js')
 
-  if (!ctx.browser) {
-    console.error('Substack agent requires browser automation. Set CDP_URL.')
-    process.exit(1)
-  }
+  // Login via API — no browser required
+  const client = await initSubstackClient(mnemonic, ctx.dataDir, events)
 
-  // Handle is resolved dynamically: env var → saved account → derived from agent name.
-  // This ensures the agent can always generate a publication slug on first boot.
-  let savedAccount: unknown
-  try {
-    const accountPath = join(ctx.dataDir, 'substack-account.json')
-    savedAccount = JSON.parse(readFileSync(accountPath, 'utf-8'))
-  } catch {}
+  // Store client on context so the substack skill can create tools from it
+  ;(ctx as any).substackClient = client
 
-  const substackHandle = deriveSubstackHandle(ctx.identity, savedAccount)
-  events.monologue(`Using Substack handle @${substackHandle}`)
+  // LLM-driven publication setup (aligns publication with SOUL.md identity)
+  await setupPublication(client, ctx.identity, events)
 
-  const client = new SubstackClient(events, substackHandle, ctx.browser)
   const engagement = new SubstackEngagement(client, events, ctx.identity)
   const rssFeeds = (process.env.RSS_FEEDS ?? '').split(',').filter(Boolean)
   const substackScanner = new SubstackScanner(rssFeeds)
 
-  return new SubstackAdapter(client, engagement, substackScanner)
+  return new SubstackAdapter(client, engagement, substackScanner, events)
 }
 
 async function main() {
   console.log('Agent starting...')
 
-  // 1. Read the three defining files
-  readFile('SOUL.md')
-  readFile('PROCESS.md')
+  // 1. Read defining files + load process plan
+  const soulText = readFile('SOUL.md')
   const constitutionText = readFile('constitution.md')
+  const { plan, description: processDescription } = loadProcessPlan()
   console.log('Agent files loaded')
 
   // 2. Init config
@@ -201,20 +160,16 @@ async function main() {
     installedRoot: installedSkillsRoot,
   })
 
-  // 8. Compile agent
+  // 8. Compile agent identity + apply process plan
   const compiler = new AgentCompiler(config, config.dataDir)
-  const buildCompilerInputs = () => ({
-    availableSkills: buildCompilerSkillCatalog(skills.list()),
-    availableTools: buildCompilerToolCatalog(skills.installedManifests()),
-  })
   const compileCurrentAgent = async () => {
     const nextSoul = readFile('SOUL.md')
-    const nextProcess = readFile('PROCESS.md')
     const nextConstitution = readFile('constitution.md')
-    return compiler.compile(nextSoul, nextProcess, nextConstitution, buildCompilerInputs())
+    const nextProcess = loadProcessPlan()
+    return compiler.compile(nextSoul, nextConstitution, nextProcess.plan, nextProcess.description)
   }
 
-  const compiled = await compileCurrentAgent()
+  const compiled = await compiler.compile(soulText, constitutionText, plan, processDescription)
   Object.assign(identity, compiled.identity)
   identity.constitution = constitutionText
   ctx.compiledStyle = compiled.style
@@ -222,7 +177,7 @@ async function main() {
   // 9. Init platform
   let platform: PlatformAdapter
   if (config.platform === 'substack') {
-    platform = await initSubstackPlatform(events, ctx)
+    platform = await initSubstackPlatform(mnemonic, events, ctx)
   } else {
     platform = await initTwitterPlatform(config, events, ctx)
   }
@@ -246,9 +201,8 @@ async function main() {
   console.log(`Skills: ${skills.names.join(', ')}`)
   console.log(`Workflows: ${compiled.plan.workflows.map(w => w.name).join(', ')}`)
 
-  // 11. Start
+  // 11. Create executor + wire hot reload
   const executor = new ProcessExecutor(compiled.plan, skills, ctx.state, events, config, identity, compiled.creativeProcess, config.dataDir)
-  const loop = new AgentLoop(events, executor, skills, config, identity)
 
   skills.setInstalledSkillsReloadHandler(async ({ added, removed, reloaded }) => {
     const nextCompiled = await compileCurrentAgent()
@@ -271,17 +225,21 @@ async function main() {
     enabled: config.skills.hotReloadEnabled,
   })
 
+  // 12. Start server (needs executor for /upgrade/process)
   const app = await createServer({
     events,
     config,
     db,
     identity,
     skills,
+    executor,
     wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
   })
   await app.listen({ port: config.port, host: '0.0.0.0' })
   console.log(`Media agent running on port ${config.port}`)
 
+  // 13. Start agent loop
+  const loop = new AgentLoop(events, executor, skills, config, identity)
   const loopPromise = loop.start()
 
   const shutdown = async () => {

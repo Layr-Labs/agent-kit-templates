@@ -6,7 +6,7 @@
   "imageTag": "agentkit-media-agent:latest",
   "files": [
     { "name": "SOUL.md", "envKey": "SOUL_MD_B64", "required": true, "consentRequired": false },
-    { "name": "PROCESS.md", "envKey": "PROCESS_MD_B64", "required": true, "consentRequired": false },
+    { "name": "PROCESS.toml", "envKey": "PROCESS_TOML_B64", "required": true, "consentRequired": false },
     { "name": "constitution.md", "envKey": "CONSTITUTION_MD_B64", "required": true, "consentRequired": true }
   ],
   "platforms": [

@@ -28,6 +28,8 @@ export interface InstalledSkillManifest {
   sourceEntrypoint: string
   capabilities?: string[]
   tools?: SkillToolInfo[]
+  /** Maps pipeline skill name → tool names from this skill to include in that pipeline stage. */
+  pipelineIntegration?: Record<string, string[]>
   enabled?: boolean
 }
 
@@ -48,6 +50,7 @@ export interface SkillRegistryInterface {
   get names(): string[]
   list(): SkillInfo[]
   installedManifests(): InstalledSkillManifest[]
+  resolveWorkflowTools(skillNames: string[]): Record<string, any>
 }
 
 export interface SkillContext {
@@ -76,6 +79,8 @@ export interface Skill {
   readonly description: string
   readonly category: 'agent' | 'browser' | 'pipeline'
   readonly dependencies?: string[]
+  /** External tool names this skill needs when included in a workflow scope. */
+  readonly toolScope?: string[]
   init(ctx: SkillContext): Promise<Record<string, Tool>>
   tick?(): Promise<void>
   shutdown?(): Promise<void>

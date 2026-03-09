@@ -10,6 +10,8 @@ export interface ProcessWorkflow {
   instruction: string
   priority: number
   runOnce?: boolean
+  /** When set, only tools from these skills (own tools + toolScope) are provided to the LLM. */
+  skills?: string[]
 }
 
 export interface ProcessPlan {

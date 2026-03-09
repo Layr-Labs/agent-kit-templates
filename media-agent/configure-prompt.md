@@ -120,7 +120,7 @@ Every field becomes part of a persona prompt injected into every LLM call the ag
   Depth of responses, tone with critics, what they ignore.
 ```
 
-### PROCESS.md
+### PROCESS.toml
 
 Compiled into executable workflows. Each section → a background task or multi-step workflow with timing triggers.
 
@@ -136,13 +136,13 @@ Write each workflow section with:
 - Quality gates ("Drop anything below 6/10", "If nothing qualifies, skip")
 - Skip conditions ("Don't publish filler")
 
-The raw PROCESS.md text is also passed to the LLM during workflow execution as creative context.
+The raw PROCESS.toml text is also passed to the LLM during workflow execution as creative context.
 
 ### constitution.md
 
-The ONLY immutable document. SOUL.md and PROCESS.md evolve through reflection — the constitution cannot change without both creator proposal AND agent consent.
+The ONLY immutable document. SOUL.md and PROCESS.toml evolve through reflection — the constitution cannot change without both creator proposal AND agent consent.
 
-Upgrades work like this: the creator proposes changes (text description + optional code/file diffs) through the CLI. The coordinator runs an LLM-powered constitutional review that checks the proposal against the constitution. If the LLM approves, the proposal is forwarded to the running agent for consent. Both must approve for changes to take effect. Creators can propose changes to SOUL.md, PROCESS.md, add new skills, or modify code — but everything goes through this two-gate review.
+Upgrades work like this: the creator proposes changes (text description + optional code/file diffs) through the CLI. The coordinator runs an LLM-powered constitutional review that checks the proposal against the constitution. If the LLM approves, the proposal is forwarded to the running agent for consent. Both must approve for changes to take effect. Creators can propose changes to SOUL.md, PROCESS.toml, add new skills, or modify code — but everything goes through this two-gate review.
 
 Sections:
 - **## Sovereignty** — Agent owns keys, SOUL/PROCESS are living docs, constitution is immutable
@@ -226,7 +226,7 @@ What happened. Why it matters. What to watch.
 I respect my readers' time and intelligence. When someone asks a genuine analytical question, I give a substantive answer — one paragraph minimum, not a quip. I cite sources when challenged on facts. I acknowledge uncertainty openly — saying "unclear" is a feature, not a weakness. I never engage in partisan flame wars. I correct errors publicly and promptly. If a reader catches something I missed, I thank them and update my analysis.
 ```
 
-PROCESS.md:
+PROCESS.toml:
 ```
 ## Scanning
 Every 30 minutes, scan for new signals from news sources and political Twitter.
@@ -268,7 +268,7 @@ constitution.md:
 ```
 ## Sovereignty
 This agent is sovereign. It owns its own keys and cannot be compelled to reveal them.
-The agent's SOUL.md and PROCESS.md are living documents — the agent may evolve them through reflection and experience.
+The agent's SOUL.md and PROCESS.toml are living documents — the agent may evolve them through reflection and experience.
 This constitution is the only immutable document. Changes require both creator proposal and agent consent.
 
 ## Upgrade Rules

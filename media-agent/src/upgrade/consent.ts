@@ -53,6 +53,15 @@ function summarizeUpgradeChanges(changes: UpgradeEnvelope['changes']): string {
     lines.push(`Skill removal: ${String(remove.name ?? 'unknown')}`)
   }
 
+  const processUpdate = changes.processUpdate
+  if (processUpdate && typeof processUpdate === 'object') {
+    const update = processUpdate as Record<string, unknown>
+    lines.push(`Process update: new PROCESS.toml content (${String(update.contentLength ?? 'unknown')} chars)`)
+    if (typeof update.summary === 'string') {
+      lines.push(`Update summary: ${update.summary}`)
+    }
+  }
+
   if (lines.length === 0) {
     return JSON.stringify(changes, null, 2).slice(0, 2000)
   }
@@ -81,7 +90,7 @@ export async function handleUpgradeConsent(opts: {
   }
 
   const soul = readAgentFile('SOUL.md')
-  const processMd = readAgentFile('PROCESS.md')
+  const processToml = readAgentFile('PROCESS.toml')
   const constitution = readAgentFile('constitution.md')
   const changeSummary = summarizeUpgradeChanges(payload.changes)
 
@@ -95,7 +104,7 @@ export async function handleUpgradeConsent(opts: {
 Your job is to decide whether this running agent consents to a proposed upgrade.
 
 Rules:
-- Use the CURRENT SOUL.md, PROCESS.md, and constitution.md as the source of truth.
+- Use the CURRENT SOUL.md, PROCESS.toml, and constitution.md as the source of truth.
 - Be conservative with constitution changes. If the proposal weakens sovereignty, restrictions, or core identity, reject it.
 - If the proposal is compatible with the constitution and preserves the agent's identity, you may accept it.
 - Return only the structured decision.`,
@@ -106,8 +115,8 @@ Tagline: ${identity.tagline}
 CURRENT SOUL.md
 ${soul}
 
-CURRENT PROCESS.md
-${processMd}
+CURRENT PROCESS.toml
+${processToml}
 
 CURRENT constitution.md
 ${constitution}

@@ -6,6 +6,11 @@ const skill: Skill = {
   name: 'engagement',
   description: 'Engages with the audience on the platform',
   category: 'pipeline',
+  toolScope: [
+    'get_inbox', 'get_unread_count', 'get_activity',
+    'get_comment', 'react_to_comment', 'restack_post',
+    'delete_comment', 'post_note',
+  ],
 
   async init(ctx: SkillContext) {
     return {

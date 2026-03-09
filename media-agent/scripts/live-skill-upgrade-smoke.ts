@@ -48,7 +48,7 @@ async function main() {
   try {
     const builtinRoot = resolve(import.meta.dir, '../src/skills')
     const soul = await readFile(resolve(process.cwd(), 'SOUL.md'), 'utf-8')
-    const processMd = await readFile(resolve(process.cwd(), 'PROCESS.md'), 'utf-8')
+    const processMd = await readFile(resolve(process.cwd(), 'PROCESS.toml'), 'utf-8')
     const constitution = await readFile(resolve(process.cwd(), 'constitution.md'), 'utf-8')
 
     const rawConfig = createConfig(resolve(process.cwd(), 'config.toml'))

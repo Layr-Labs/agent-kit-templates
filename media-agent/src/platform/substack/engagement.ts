@@ -1,17 +1,15 @@
-import { Output } from 'ai'
-import { gateway } from 'ai'
+import { Output, gateway } from 'ai'
 import { z } from 'zod'
-import type { SubstackClient } from './client.js'
-import { EventBus } from '../../console/events.js'
-import { buildPersonaPrompt } from '../../prompts/identity.js'
+import type { SubstackClient } from 'substack-skill'
+import type { EventBus } from '../../console/events.js'
 import type { AgentIdentity } from '../../types.js'
+import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { generateTrackedText } from '../../ai/tracking.js'
 
-const replyDecisionSchema = z.object({
-  replies: z.array(z.object({
-    commentId: z.string(),
-    shouldReply: z.boolean(),
-    replyText: z.string().optional(),
+const engagementDecisionSchema = z.object({
+  actions: z.array(z.object({
+    commentId: z.number(),
+    shouldReact: z.boolean(),
     reason: z.string(),
   })),
 })
@@ -31,7 +29,6 @@ export class SubstackEngagement {
   private hasPublishedContent = false
 
   async check(): Promise<void> {
-    // Skip engagement if we haven't published anything yet — no comments to check
     if (!this.hasPublishedContent) {
       this.events.monologue('No published content yet — skipping engagement check.')
       return
@@ -39,38 +36,57 @@ export class SubstackEngagement {
 
     this.events.transition('engaging')
 
-    const comments = await this.client.getRecentComments()
-    if (comments.length === 0) {
-      this.events.monologue('No new comments to respond to.')
-      return
-    }
+    try {
+      const unread = await this.client.getUnreadActivity() as any
+      const items = unread?.items ?? unread ?? []
 
-    this.events.monologue(`${comments.length} comments to review...`)
+      if (!Array.isArray(items) || items.length === 0) {
+        this.events.monologue('No new activity to engage with.')
+        return
+      }
 
-    const { output: object } = await generateTrackedText({
-      operation: 'substack_reply_selection',
-      modelId: this.model,
-      model: gateway(this.model),
-      output: Output.object({ schema: replyDecisionSchema }),
-      system: `${this.personaPrompt}\n\nYou are reviewing reader comments on your Substack newsletter. Decide which comments deserve a reply. Reply to comments that are thoughtful, ask genuine questions, or offer interesting perspectives. Skip spam, generic praise, or comments that don't warrant engagement. Keep replies conversational and in your authentic voice.`,
-      prompt: `Recent comments:\n\n${comments.map((c, i) => `[${c.id}] ${c.author}: "${c.text}" (on post: ${c.postSlug})`).join('\n\n')}\n\nWhich should I reply to?`,
-    })
-    if (!object) return
+      // Filter for comment-type activity
+      const commentItems = items.filter(
+        (item: any) => item.type === 'comment' || item.type === 'reaction' || item.comment_id,
+      )
 
-    for (const decision of object.replies) {
-      if (decision.shouldReply && decision.replyText) {
-        try {
-          await this.client.replyToComment(decision.commentId, decision.replyText)
-          this.events.emit({
-            type: 'engage',
-            targetId: decision.commentId,
-            text: decision.replyText,
-            ts: Date.now(),
-          })
-        } catch (err) {
-          this.events.monologue(`Failed to reply to comment ${decision.commentId}: ${(err as Error).message}`)
+      if (commentItems.length === 0) {
+        this.events.monologue('No new comments to respond to.')
+        return
+      }
+
+      this.events.monologue(`${commentItems.length} engagement items to review...`)
+
+      const { output: object } = await generateTrackedText({
+        operation: 'substack_engagement',
+        modelId: this.model,
+        model: gateway(this.model),
+        output: Output.object({ schema: engagementDecisionSchema }),
+        system: `${this.personaPrompt}\n\nYou are reviewing reader engagement on your Substack. Decide which comments to react to (heart). React to thoughtful comments, genuine questions, and interesting perspectives. Skip spam or generic comments.`,
+        prompt: `Recent activity:\n\n${commentItems.map((item: any) =>
+          `[${item.comment_id ?? item.id}] ${item.author_name ?? item.user_name ?? 'Unknown'}: "${item.body_text ?? item.summary ?? item.body ?? ''}" (${item.type ?? 'comment'})`
+        ).join('\n\n')}\n\nWhich should I react to?`,
+      })
+
+      if (!object) return
+
+      for (const action of object.actions) {
+        if (action.shouldReact && action.commentId) {
+          try {
+            await this.client.reactToComment(action.commentId)
+            this.events.emit({
+              type: 'engage',
+              targetId: String(action.commentId),
+              text: '\u2764\ufe0f',
+              ts: Date.now(),
+            })
+          } catch (err) {
+            this.events.monologue(`Failed to react to comment ${action.commentId}: ${(err as Error).message}`)
+          }
         }
       }
+    } catch (err) {
+      this.events.monologue(`Engagement check failed: ${(err as Error).message}`)
     }
   }
 

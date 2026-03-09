@@ -80,7 +80,7 @@ RUN bun install --no-frozen-lockfile
 # ── App source + config ──────────────────────────────────────────────────
 COPY src/ src/
 COPY tsconfig.json ./
-COPY SOUL.md PROCESS.md constitution.md config.toml ./
+COPY SOUL.md PROCESS.toml constitution.md config.toml ./
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

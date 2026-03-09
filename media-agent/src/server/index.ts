@@ -15,7 +15,9 @@ import {
 } from '../upgrade/skills.js'
 import { getCostTracker } from '../ai/tracking.js'
 import type { SkillRegistry } from '../skills/registry.js'
+import type { ProcessExecutor } from '../process/executor.js'
 import { getInstalledSkillsRoot, listInstalledSkillInventory } from '../skills/installed.js'
+import { handleProcessUpgrade } from '../upgrade/process.js'
 
 export async function createServer(opts: {
   events: EventBus
@@ -23,9 +25,10 @@ export async function createServer(opts: {
   db: Database
   identity: AgentIdentity
   skills: SkillRegistry
+  executor: ProcessExecutor
   wallets?: { evm: string; solana: string }
 }) {
-  const { events, config, db, identity, skills, wallets } = opts
+  const { events, config, db, identity, skills, executor, wallets } = opts
   const app = Fastify({ logger: false })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
 
@@ -139,6 +142,23 @@ export async function createServer(opts: {
       installedRoot: installedSkillsRoot,
       registry: skills,
       events,
+    })
+    reply.code(response.status)
+    for (const [key, value] of response.headers.entries()) {
+      reply.header(key, value)
+    }
+    return response.text()
+  })
+
+  app.post('/upgrade/process', async (request, reply) => {
+    const response = await handleProcessUpgrade({
+      headers: request.headers as Record<string, string | string[] | undefined>,
+      body: request.body,
+      config,
+      registry: skills,
+      executor,
+      events,
+      identity,
     })
     reply.code(response.status)
     for (const [key, value] of response.headers.entries()) {

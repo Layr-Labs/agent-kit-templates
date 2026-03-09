@@ -18,6 +18,10 @@ const installedSkillManifestSchema = z.object({
     name: z.string().min(1).max(128),
     description: z.string().min(1).max(500),
   })).optional(),
+  pipelineIntegration: z.record(
+    z.string().min(1).max(64),
+    z.array(z.string().min(1).max(128)),
+  ).optional(),
   enabled: z.boolean().optional(),
 })
 

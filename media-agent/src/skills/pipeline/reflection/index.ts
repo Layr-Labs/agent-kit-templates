@@ -10,6 +10,7 @@ const skill: Skill = {
   name: 'reflection',
   description: 'Reflects on recent work and evolves the worldview',
   category: 'pipeline',
+  toolScope: ['get_analytics', 'list_subscribers', 'get_self'],
 
   async init(ctx: SkillContext) {
     worldview = new WorldviewStore(ctx.events, ctx.config, ctx.identity, join(ctx.dataDir, 'worldview.json'))
