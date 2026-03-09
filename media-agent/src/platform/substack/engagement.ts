@@ -62,10 +62,10 @@ export class SubstackEngagement {
         modelId: this.model,
         model: gateway(this.model),
         output: Output.object({ schema: engagementDecisionSchema }),
-        system: `${this.personaPrompt}\n\nYou are reviewing reader engagement on your Substack. Decide which comments to react to (heart). React to thoughtful comments, genuine questions, and interesting perspectives. Skip spam or generic comments.`,
-        prompt: `Recent activity:\n\n${commentItems.map((item: any) =>
-          `[${item.comment_id ?? item.id}] ${item.author_name ?? item.user_name ?? 'Unknown'}: "${item.body_text ?? item.summary ?? item.body ?? ''}" (${item.type ?? 'comment'})`
-        ).join('\n\n')}\n\nWhich should I react to?`,
+        system: `${this.personaPrompt}\n\n<engagement_task platform="substack">\n  <task>Decide which comments to react to (heart).</task>\n  <react_to>Thoughtful comments, genuine questions, and interesting perspectives.</react_to>\n  <skip>Spam, generic praise, or low-effort comments.</skip>\n</engagement_task>`,
+        prompt: `<recent_activity>\n${commentItems.map((item: any) =>
+          `  <item id="${item.comment_id ?? item.id}" author="${item.author_name ?? item.user_name ?? 'Unknown'}" type="${item.type ?? 'comment'}">${item.body_text ?? item.summary ?? item.body ?? ''}</item>`
+        ).join('\n')}\n</recent_activity>\n\nWhich should I react to?`,
       })
 
       if (!object) return

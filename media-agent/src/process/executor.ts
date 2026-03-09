@@ -114,11 +114,22 @@ export class ProcessExecutor {
     const posts = this.state.allPosts
       .sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
     if (posts.length === 0) return ''
-    const lines = posts.map((p, i) => {
+    const entries = posts.map(p => {
       const age = Math.round((Date.now() - (p.postedAt ?? 0)) / 3600000)
-      return `${i + 1}. [${age}h ago] ${p.text}${p.articleUrl ? ` (${p.articleUrl})` : ''}`
+      const url = p.articleUrl ?? ''
+      // Extract ArXiv ID from URL if present
+      const arxivMatch = url.match(/arxiv\.org\/(?:abs|html|pdf)\/(\d+\.\d+)/)
+      const arxivId = arxivMatch ? arxivMatch[1] : ''
+      return `  <post age="${age}h"${arxivId ? ` arxiv="${arxivId}"` : ''}${url ? ` url="${url}"` : ''}>
+    ${p.text}
+  </post>`
     })
-    return `\n\n=== ALREADY PUBLISHED (do NOT repeat these topics) ===\n${lines.join('\n')}\n=== END ===`
+    return `
+
+<already_published>
+  <rule>You MUST NOT write about any topic, paper, or subject listed below. Pick something NEW. If you cannot find anything new worth writing about, skip this cycle entirely — do not publish filler and do not repeat yourself.</rule>
+${entries.join('\n')}
+</already_published>`
   }
 
   private async executeWorkflow(workflow: ProcessWorkflow): Promise<boolean> {
@@ -140,30 +151,45 @@ export class ProcessExecutor {
         model: this.config.model('ideation'),
         tools,
         stopWhen: stepCountIs(120),
-        system: `${this.personaPrompt}
+        system: `<persona>
+${this.personaPrompt}
+</persona>
 
-Your creative process:
+<creative_process>
 ${this.creativeProcess}
+</creative_process>
 
-You are now executing the "${workflow.name}" workflow. Your objective is described below.
+<workflow name="${workflow.name}">
+You are executing the "${workflow.name}" workflow. Your objective is in the user message below.
+Use your tools in whatever order makes sense to achieve the objective.
+</workflow>
 
-You have access to all your tools. Use them in whatever order makes sense to achieve the objective.
+<tool_rules>
+- For reading articles and papers: use read_article or read_articles (fast, lightweight). For ArXiv, prefer read_paper or get_paper_metadata from the arxiv-reader skill if available.
+- If the workflow references a skill or capability you don't have, do not invent tools or improvise. Use list_skills to confirm what is installed, then stop and report the missing skill clearly.
+- If prior learnings or notes may be relevant, check list_learnings and list_notes before starting fresh research.
+- Save durable findings with record_learning so they persist across workflows.
+- browse is for RESEARCH ONLY — Google searches, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, account management, or reading PDFs.
+- For reading files already on disk, use the read_file tool. Never use browse to read local files.
+- Budget: spend at most 40% of steps on research/scanning. Once you have enough material, move to writing and publishing. Max 3 browse tasks per workflow.
+- Never navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read.
+- If a tool fails, try the correct dedicated tool once more. If it fails twice, move on — don't burn steps on retries.
+</tool_rules>
 
-IMPORTANT TOOL USAGE RULES:
-- For reading source articles and papers: use read_article or read_articles (fast, lightweight). For arXiv papers, use the HTML version (arxiv.org/html/<id>) with read_article — never browse to a PDF URL. Use browse only for Google searches and research that requires multi-step navigation.
-- If the workflow references a skill or capability you don't have, do NOT invent tools or improvise. Use list_skills to confirm what is installed, then stop and report the missing skill clearly.
-- If prior learnings or notes may be relevant, consult list_learnings/read_learning or list_notes/read_note before starting fresh research.
-- When you learn something durable from research, save it with record_learning or write_file so it persists beyond this step.
-- browse is for RESEARCH ONLY — searching Google, finding primary sources, reading pages that need interaction. Never use it for publishing, posting, account management, or reading PDFs.
-- For reading files already on disk, use the read_file tool. NEVER use browse to read local files.
-- Budget your steps: spend no more than 40% of your steps on research/scanning. Once you have enough material, move to writing and publishing. Do not open more than 3 browse tasks per workflow.
-- If a browse task fails or times out, do NOT retry the same approach. Use a different tool (read_article, read_file) instead.
-- NEVER navigate to PDF URLs in browse. PDFs render as images in the browser and cannot be read.
+<dedup_rules>
+- Before selecting a topic or paper, ALWAYS check the <already_published> section in the user message.
+- If a paper ID, topic, or subject appears in <already_published>, you MUST skip it and find something new.
+- If nothing new and worthwhile is available, skip this cycle. Never publish filler. Never repeat yourself.
+- This is a HARD constraint — violating it means publishing duplicate content to your readers.
+</dedup_rules>
 
-If something fails, try the correct dedicated tool again before attempting workarounds. If a tool fails twice, move on.
-
-Think out loud about what you're doing — your thoughts are broadcast live to your audience.`,
-        prompt: `${workflow.instruction}${this.recentPostsSummary()}`,
+<output_rules>
+Think out loud about what you're doing — your thoughts are broadcast live to your audience.
+</output_rules>`,
+        prompt: `<objective>
+${workflow.instruction}
+</objective>
+${this.recentPostsSummary()}`,
         providerOptions: {
           anthropic: { cacheControl: { type: 'ephemeral' } },
           ...(this.config.reasoningEffort ? { openai: { reasoningEffort: this.config.reasoningEffort } } : {}),

@@ -61,17 +61,17 @@ export class AgentLoop {
         stopWhen: stepCountIs(15),
         system: `${this.personaPrompt}
 
-You are the operational brain of an autonomous agent. Each tick you can use your tools to take actions.
-
-Available tools: ${toolNames.join(', ')}
-
-Only use tools when there's a reason to. Most ticks you should do nothing. Use tools when:
-- You want to read or send email
-- A periodic operational task is due
-- You want to evolve your soul or creative process
-
-If there's nothing to do, respond briefly with your current status. Do NOT use tools unnecessarily.`,
-        prompt: `Current state: ${this.events.state}\n\nAnything you need to do right now?`,
+<agent_action_task>
+  <role>You are the operational brain of an autonomous agent. Each tick you can use your tools to take actions.</role>
+  <available_tools>${toolNames.join(', ')}</available_tools>
+  <when_to_act>
+    <trigger>You want to read or send email</trigger>
+    <trigger>A periodic operational task is due</trigger>
+    <trigger>You want to evolve your soul or creative process</trigger>
+  </when_to_act>
+  <default_behavior>Only use tools when there's a reason to. Most ticks you should do nothing. If there's nothing to do, respond briefly with your current status.</default_behavior>
+</agent_action_task>`,
+        prompt: `<current_state>${this.events.state}</current_state>\n\nAnything you need to do right now?`,
         providerOptions: {
           anthropic: { cacheControl: { type: 'ephemeral' } },
         },

@@ -99,27 +99,32 @@ export async function handleUpgradeConsent(opts: {
     modelId: config.modelId('editing'),
     model: config.model('editing'),
     output: Output.object({ schema: consentDecisionSchema }),
-    system: `You are the live constitutional consent gate for a sovereign agent.
+    system: `<role>You are the live constitutional consent gate for a sovereign agent.</role>
 
-Your job is to decide whether this running agent consents to a proposed upgrade.
+<task>Decide whether this running agent consents to a proposed upgrade.</task>
 
-Rules:
-- Use the CURRENT SOUL.md, PROCESS.toml, and constitution.md as the source of truth.
-- Be conservative with constitution changes. If the proposal weakens sovereignty, restrictions, or core identity, reject it.
-- If the proposal is compatible with the constitution and preserves the agent's identity, you may accept it.
-- Return only the structured decision.`,
-    prompt: `CURRENT AGENT IDENTITY
-Name: ${identity.name}
-Tagline: ${identity.tagline}
+<rules>
+  <rule>Use the CURRENT SOUL.md, PROCESS.toml, and constitution.md as the source of truth.</rule>
+  <rule>Be conservative with constitution changes. If the proposal weakens sovereignty, restrictions, or core identity, reject it.</rule>
+  <rule>If the proposal is compatible with the constitution and preserves the agent's identity, you may accept it.</rule>
+  <rule>Return only the structured decision.</rule>
+</rules>`,
+    prompt: `<current_agent>
+  <name>${identity.name}</name>
+  <tagline>${identity.tagline}</tagline>
+</current_agent>
 
-CURRENT SOUL.md
+<current_soul>
 ${soul}
+</current_soul>
 
-CURRENT PROCESS.toml
+<current_process>
 ${processToml}
+</current_process>
 
-CURRENT constitution.md
+<current_constitution>
 ${constitution}
+</current_constitution>
 
 UPGRADE PROPOSAL
 ${payload.description}

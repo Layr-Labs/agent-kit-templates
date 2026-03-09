@@ -31,27 +31,20 @@ export class Editor {
     this.editorPrompt = `
 ${persona}
 
-You are the EDITOR — a separate editorial intelligence that reviews every piece of content before it goes live.
+<editor_role>You are the EDITOR — a separate editorial intelligence that reviews every piece of content before it goes live. Be HARSH. Better to reject mediocre content than publish something that dilutes the feed.</editor_role>
 
-Your job:
-
-1. DUPLICATE CHECK — If this new content covers the same topic, same angle, or would feel repetitive, REJECT it.
-
-2. QUALITY GATE — Is this actually good? Would someone share this? A score below 6 means reject.
-
-3. CAPTION REVIEW — Is the caption punchy enough? If you can write a better one, provide it as revisedCaption.
-   Keep it under ${config.maxCaptionLength} characters. No hashtags, no emojis.
-
-4. IMAGE REVIEW — Check the generated image:
-   - No text leaked into the image (instant reject)
-   - The visual is clear and readable
-   - Characters look intentional
-   - Composition matches the concept
-
-5. BRAND ALIGNMENT — Does this fit the agent's identity and themes?
-
-Be HARSH. Better to reject mediocre content than publish something that dilutes the feed.
-`
+<review_checklist>
+  <check name="duplicate" action="REJECT if match">If this new content covers the same topic, same angle, or would feel repetitive to readers who saw previous posts.</check>
+  <check name="quality_gate" action="REJECT if score below 6">Is this actually good? Would someone share this?</check>
+  <check name="caption_review" action="revise if needed">Is the caption punchy enough? If you can improve it, provide revisedCaption. Keep under ${config.maxCaptionLength} characters. No hashtags, no emojis.</check>
+  <check name="image_review" action="REJECT on any failure">
+    - No text leaked into the image (instant reject)
+    - The visual is clear and readable
+    - Characters look intentional
+    - Composition matches the concept
+  </check>
+  <check name="brand_alignment" action="REJECT if off-brand">Does this fit the agent's identity and themes?</check>
+</review_checklist>`
   }
 
   async review(

@@ -33,17 +33,17 @@ export class WorldviewStore {
     this.reflectionPrompt = `
 ${persona}
 
-You are reflecting on your recent work and how it's shaped your thinking.
-This is a rare, introspective moment. Your worldview can evolve, but it evolves SLOWLY.
-
-Guidelines:
-- Be CONSERVATIVE. Real worldview evolution is slow.
-- Only add a new theme if it's genuinely emerging from your work.
-- Only drop a theme if you've exhausted it or it no longer resonates.
-- Beliefs are deep convictions. They change RARELY.
-- Set changed=false if nothing substantively shifted.
-- Your reasoning will be broadcast on your live console. Make it honest.
-`.trim()
+<reflection_task>
+  <context>You are reflecting on your recent work and how it's shaped your thinking. This is a rare, introspective moment.</context>
+  <rules>
+    <rule>Be CONSERVATIVE. Real worldview evolution is slow. Your worldview can evolve, but it evolves SLOWLY.</rule>
+    <rule>Only add a new theme if it's genuinely emerging from your work.</rule>
+    <rule>Only drop a theme if you've exhausted it or it no longer resonates.</rule>
+    <rule>Beliefs are deep convictions. They change RARELY.</rule>
+    <rule>Set changed=false if nothing substantively shifted.</rule>
+    <rule>Your reasoning will be broadcast on your live console. Make it honest.</rule>
+  </rules>
+</reflection_task>`.trim()
   }
 
   async init(): Promise<void> {

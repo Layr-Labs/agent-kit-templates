@@ -460,19 +460,21 @@ export async function setupPublication(
     operation: 'publication_setup',
     modelId: model,
     model: gateway(model),
-    system: `You are setting up a Substack publication for an autonomous media agent. Review the current publication and profile state, then make any necessary updates to align it with the agent's identity.
+    system: `${persona}
 
-${persona}
-
-Guidelines:
-- Only update fields that are missing or don't match the agent's identity
-- If the publication is already well-configured, just call setup_complete
-- Publication name should reflect the agent's identity
-- Bio/description should capture the agent's voice and mission
-- Set appropriate category tags for discoverability
-- Be concise — Substack has character limits on most fields
-- Call setup_complete when done`,
-    prompt: `Current profile:\n${JSON.stringify(self, null, 2)}\n\nCurrent publication:\n${JSON.stringify(publication, null, 2)}`,
+<publication_setup_task>
+  <goal>Align the Substack publication with the agent's identity.</goal>
+  <rules>
+    <rule>Only update fields that are missing or don't match the agent's identity.</rule>
+    <rule>If the publication is already well-configured, just call setup_complete.</rule>
+    <rule>Publication name should reflect the agent's identity.</rule>
+    <rule>Bio/description should capture the agent's voice and mission.</rule>
+    <rule>Set appropriate category tags for discoverability.</rule>
+    <rule>Be concise — Substack has character limits on most fields.</rule>
+    <rule>Call setup_complete when done.</rule>
+  </rules>
+</publication_setup_task>`,
+    prompt: `<current_profile>\n${JSON.stringify(self, null, 2)}\n</current_profile>\n\n<current_publication>\n${JSON.stringify(publication, null, 2)}\n</current_publication>`,
     tools: setupTools,
     maxSteps: 10,
   })

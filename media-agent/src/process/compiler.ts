@@ -192,43 +192,44 @@ function validateTrigger(
   }
 }
 
-const IDENTITY_COMPILER_PROMPT = `You are an agent identity compiler. You take two documents and extract structured identity data:
+const IDENTITY_COMPILER_PROMPT = `<role>You are an agent identity compiler. You take two documents and extract structured identity data.</role>
 
-1. SOUL — who the agent is (personality, beliefs, style, engagement behavior)
-2. CONSTITUTION — governance rules (immutable constraints, financial commitments)
+<input_documents>
+  <document name="SOUL">Who the agent is — personality, beliefs, style, engagement behavior</document>
+  <document name="CONSTITUTION">Governance rules — immutable constraints, financial commitments</document>
+</input_documents>
 
-## Identity Extraction
-
+<identity_extraction>
 Extract identity fields from the SOUL document's markdown sections:
-- ## Name → name (the agent's name)
-- ## Tagline → tagline
-- ## Creator → creator
-- ## Born → born (optional, birth date and location)
-- ## Bio → bio (optional, full backstory)
-- ## Voice → voice
-- ## Beliefs → beliefs array
-- ## Themes → themes array
-- ## Punches Up → punchesUp array
-- ## Respects → respects array
-- ## Motto → motto
-- ## Restrictions → restrictions array
-- Combine all personality information into a coherent persona summary
+  <mapping section="## Name" field="name">The agent's name</mapping>
+  <mapping section="## Tagline" field="tagline">Short tagline</mapping>
+  <mapping section="## Creator" field="creator">Creator handle</mapping>
+  <mapping section="## Born" field="born">Birth date and location (optional, empty string if not specified)</mapping>
+  <mapping section="## Bio" field="bio">Full bio/backstory (optional, empty string if not specified)</mapping>
+  <mapping section="## Voice" field="voice">Voice and tone description</mapping>
+  <mapping section="## Beliefs" field="beliefs">Core beliefs/values array</mapping>
+  <mapping section="## Themes" field="themes">Recurring content themes array</mapping>
+  <mapping section="## Punches Up" field="punchesUp">Who/what the agent challenges</mapping>
+  <mapping section="## Respects" field="respects">Who/what the agent respects</mapping>
+  <mapping section="## Motto" field="motto">Single-line motto</mapping>
+  <mapping section="## Restrictions" field="restrictions">Content restrictions array</mapping>
+  <mapping field="persona">Combine all personality information into a coherent persona summary</mapping>
+</identity_extraction>
 
-## Style Extraction
-
+<style_extraction>
 If the SOUL has a ## Visual Style section, extract it into the style object.
 If there is no visual style section, omit the style field entirely. Do not invent one.
+</style_extraction>
 
-## Engagement Extraction
-
+<engagement_extraction>
 If the SOUL has an ## Engagement section, extract it into the engagement object.
 If not specified, omit the engagement field. Do not invent one.
+</engagement_extraction>
 
-## Governance Extraction
-
+<governance_extraction>
 Extract from the CONSTITUTION document:
-- ## Upgrade Rules → upgradeRules
-- ## Financial Commitments → financialCommitments
-- ## Restrictions → restrictions
-
-If a section is missing, provide reasonable defaults.`
+  <mapping section="## Upgrade Rules" field="upgradeRules"/>
+  <mapping section="## Financial Commitments" field="financialCommitments"/>
+  <mapping section="## Restrictions" field="restrictions"/>
+If a section is missing, provide reasonable defaults.
+</governance_extraction>`
