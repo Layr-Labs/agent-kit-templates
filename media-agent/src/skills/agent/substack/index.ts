@@ -1,7 +1,9 @@
+import { randomUUID } from 'crypto'
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { SubstackClient } from 'substack-skill'
+import type { Post } from '../../../types.js'
 
 const skill: Skill = {
   name: 'substack',
@@ -285,6 +287,27 @@ const skill: Skill = {
         }),
         execute: async ({ draft_id }) => {
           const post = await client.publishDraft(draft_id)
+
+          // Record in state so dedup works (executor shows "ALREADY PUBLISHED" to LLM)
+          const record: Post = {
+            id: randomUUID(),
+            platformId: post.slug ?? String(post.id),
+            text: post.title ?? '',
+            type: 'article',
+            postedAt: Date.now(),
+            articleUrl: post.canonical_url,
+            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
+          }
+          ctx.state.allPosts.push(record)
+
+          try {
+            ctx.db.run(
+              `INSERT INTO posts (id, platform_id, text, type, article_url, posted_at) VALUES (?, ?, ?, ?, ?, ?)`,
+              [record.id, record.platformId, record.text, record.type, record.articleUrl ?? null, record.postedAt],
+            )
+          } catch {}
+
+          ctx.events.monologue(`Published: "${post.title}" → ${post.canonical_url}`)
           return { id: post.id, title: post.title, url: post.canonical_url }
         },
       }),
@@ -309,7 +332,26 @@ const skill: Skill = {
             attachmentIds = [attachment.id]
           }
 
-          return client.postNote(content, attachmentIds)
+          const result = await client.postNote(content, attachmentIds)
+
+          // Track notes for dedup
+          const record: Post = {
+            id: randomUUID(),
+            platformId: (result as any)?.id?.toString() ?? Date.now().toString(),
+            text: content.slice(0, 280),
+            type: 'engagement',
+            postedAt: Date.now(),
+            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
+          }
+          ctx.state.allPosts.push(record)
+          try {
+            ctx.db.run(
+              `INSERT INTO posts (id, platform_id, text, type, posted_at) VALUES (?, ?, ?, ?, ?)`,
+              [record.id, record.platformId, record.text, record.type, record.postedAt],
+            )
+          } catch {}
+
+          return result
         },
       }),
 
