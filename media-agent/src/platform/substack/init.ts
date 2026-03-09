@@ -390,7 +390,10 @@ export async function setupPublication(
   if (!self.primaryPublication) {
     events.monologue('No publication found — creating one...')
     try {
-      await client.acceptPublisherAgreement()
+      // Accept publisher agreement — may fail if email domain is blocked, but try anyway
+      try { await client.acceptPublisherAgreement() } catch (e) {
+        events.monologue(`Publisher agreement: ${(e as Error).message.slice(0, 100)} (continuing anyway)`)
+      }
       const subdomain = identity.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'agentpub'
       const description = identity.tagline || `${identity.name}'s publication`
       await client.createPublication(identity.name, subdomain, description)
@@ -398,8 +401,9 @@ export async function setupPublication(
       self = await client.getSelf()
       events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
     } catch (err) {
-      events.monologue(`Publication creation failed: ${(err as Error).message}`)
-      return
+      events.monologue(`Publication creation failed: ${(err as Error).message.slice(0, 150)}`)
+      // Non-fatal — agent can still run without a publication, just can't publish
+      events.monologue('Continuing without publication — publishing will fail until manually set up.')
     }
   }
 

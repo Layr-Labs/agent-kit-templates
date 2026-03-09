@@ -164,7 +164,9 @@ export function validateCompiledAgent(
     if (workflow.skills) {
       for (const skillName of workflow.skills) {
         if (!availableSkills.has(skillName)) {
-          errors.push(`Workflow "${workflow.name}" references unavailable skill "${skillName}".`)
+          // Warn but don't error — missing skills just mean fewer tools for this workflow.
+          // The agent can still function without optional skills (e.g. image generator).
+          console.warn(`Workflow "${workflow.name}" references skill "${skillName}" which is not loaded (will be skipped).`)
         }
       }
     }
