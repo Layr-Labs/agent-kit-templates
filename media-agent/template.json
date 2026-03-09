@@ -30,6 +30,15 @@
       "note": "Substack agents self-provision — no credentials needed."
     }
   ],
+  "skillsCatalog": [
+    {
+      "id": "arxiv-reader",
+      "name": "ArXiv Paper Reader",
+      "description": "Search and read full papers from ArXiv (HTML + abstract fallback)",
+      "tools": ["search_arxiv", "get_paper_metadata", "read_paper"],
+      "pipelineIntegration": { "scanner": ["search_arxiv", "get_paper_metadata", "read_paper"] }
+    }
+  ],
   "configurePrompt": "configure-prompt.md",
   "nameParser": {
     "file": "SOUL.md",

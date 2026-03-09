@@ -20,7 +20,7 @@
         "replicate": "^1.4.0",
         "sharp": "^0.34.5",
         "smol-toml": "^1.3.1",
-        "substack-skill": "^0.1.2",
+        "substack-skill": "0.1.4",
         "twitter-api-v2": "^1.19.0",
         "viem": "^2.45.3",
         "zod": "^3.24.0",
@@ -638,7 +638,7 @@
 
     "strnum": ["strnum@2.1.2", "", {}, ""],
 
-    "substack-skill": ["substack-skill@0.1.2", "", { "dependencies": { "ai": "^6.0.116", "commander": "^14.0.3", "eigenmail-sdk": "^0.1.1", "viem": "^2.47.0", "zod": "^4.3.6" }, "bin": { "substack": "dist/cli.js" } }, "sha512-FiIoDFgDEobmu+9c09Xu1NyqQ8uxBtmetHpcG1swVfmK4BioAWAdykrCpYo2n/nDN+KPKqkt4NAzxZxrqfM4KA=="],
+    "substack-skill": ["substack-skill@0.1.4", "", { "dependencies": { "ai": "^6.0.116", "commander": "^14.0.3", "eigenmail-sdk": "^0.1.1", "viem": "^2.47.0", "zod": "^4.3.6" }, "bin": { "substack": "dist/cli.js" } }, "sha512-YkxxF9FX3CQcvogLabs/LW49raTJKPzbOqqdBlwHd86Slx+GQV9dxXpe6wpyrryKBBWG16FoMuE4k0sfFGNJAw=="],
 
     "superstruct": ["superstruct@2.0.2", "", {}, ""],
 

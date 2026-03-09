@@ -190,7 +190,7 @@ const skill: Skill = {
           const { readFileSync } = await import('fs')
           const buffer = readFileSync(file_path)
           const filename = file_path.split('/').pop() ?? 'image.png'
-          const result = await client.uploadImage(buffer, filename) as any
+          const result = await client.uploadImage(buffer, filename)
           return { url: result.url, width: result.imageWidth, height: result.imageHeight }
         },
       }),

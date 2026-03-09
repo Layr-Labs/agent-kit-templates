@@ -146,6 +146,25 @@ if [ -n "$CONSTITUTION_MD_B64" ]; then
   echo "Injected constitution.md from env"
 fi
 
+# ── Install catalog skills at birth ───────────────────────────────────────
+if [ -n "$INITIAL_SKILLS" ]; then
+  INSTALLED_DIR="/app/.data/skills/installed"
+  mkdir -p "$INSTALLED_DIR"
+  IFS=',' read -ra SKILLS <<< "$INITIAL_SKILLS"
+  for skill in "${SKILLS[@]}"; do
+    skill=$(echo "$skill" | xargs)
+    src="/app/skills-catalog/$skill"
+    dest="$INSTALLED_DIR/$skill"
+    if [ -d "$src" ]; then
+      mkdir -p "$dest"
+      cp -r "$src/"* "$dest/"
+      echo "Installed catalog skill: $skill"
+    else
+      echo "WARN: catalog skill not found: $skill"
+    fi
+  done
+fi
+
 # ── Start the agent ───────────────────────────────────────────────────────
 echo "Starting agent..."
 echo "Node/Bun version: $(bun --version 2>&1)"

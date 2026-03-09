@@ -76,22 +76,57 @@ async function loginViaBrowser(
     throw new Error(`email-login failed: ${otpParsed.error}`)
   }
 
-  // Step 2: Wait for OTP email (runs in Node, not browser)
+  // Step 2: Wait for OTP email by polling inbox (runs in Node, not browser)
+  // Don't rely on waitForEmail subject filters — Substack may change the format.
+  // Instead, poll inbox and look for any recent email containing a 6-digit code.
   events.monologue('Waiting for OTP email...')
-  const otpRequestedAt = new Date(Date.now() - 3000)
-  const otpEmail: any = await mail.waitForEmail({
-    since: otpRequestedAt,
-    subject: 'verification code',
-    timeout: 120000,
-    interval: 3000,
-  })
+  const otpRequestedAt = Date.now() - 5000
 
-  const subjectCode = (otpEmail?.subject ?? '').match(/^(\d{6})/)?.[1]
-  const bodyCode = String(otpEmail?.body ?? otpEmail?.text ?? '').match(/\b(\d{6})\b/)?.[1]
-  const code = subjectCode ?? bodyCode
+  let code: string | null = null
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise(r => setTimeout(r, 3000))
+
+    try {
+      const inbox: any = await mail.inbox({ limit: 5 })
+      const messages = inbox?.messages ?? []
+
+      for (const msg of messages) {
+        // Skip old messages
+        const msgDate = msg.date ? new Date(msg.date).getTime() : 0
+        if (msgDate > 0 && msgDate < otpRequestedAt) continue
+
+        // Check if it's from Substack
+        const from = String(msg.from ?? '').toLowerCase()
+        const subject = String(msg.subject ?? '').toLowerCase()
+        if (!from.includes('substack') && !subject.includes('substack') && !subject.includes('verification')) continue
+
+        // Try extracting 6-digit code from subject
+        const subjectCode = String(msg.subject ?? '').match(/(\d{6})/)?.[1]
+        if (subjectCode) {
+          code = subjectCode
+          break
+        }
+
+        // Read full message body for code
+        try {
+          const full: any = await mail.read(msg.id)
+          const body = String(full?.body ?? full?.text ?? '')
+          const bodyCode = body.match(/\b(\d{6})\b/)?.[1]
+          if (bodyCode) {
+            code = bodyCode
+            break
+          }
+        } catch {}
+      }
+
+      if (code) break
+    } catch (err) {
+      events.monologue(`Inbox poll error: ${(err as Error).message}`)
+    }
+  }
 
   if (!code) {
-    throw new Error(`Could not extract OTP code from email. Subject: "${otpEmail?.subject ?? 'none'}"`)
+    throw new Error('Could not find Substack OTP code in inbox after 2 minutes.')
   }
 
   events.monologue('Got OTP code, completing login via browser...')
@@ -130,39 +165,48 @@ async function loginViaBrowser(
   // Wait for cookies to settle
   await browser.waitMs(2000)
 
-  // Extract all cookies from the browser via CDP
+  // Extract cookies from the browser.
+  // Use document.cookie (gets non-httpOnly cookies) + CDP via Node fetch (gets all cookies).
   events.monologue('Extracting session cookies...')
-  const cookieJson = await browser.evaluate<string>(`
-    (async () => {
-      try {
-        const resp = await fetch('http://localhost:9222/json');
-        const targets = await resp.json();
-        const wsUrl = targets[0]?.webSocketDebuggerUrl;
-        if (!wsUrl) return JSON.stringify([]);
 
-        return new Promise((resolve) => {
-          const ws = new WebSocket(wsUrl);
-          ws.onopen = () => {
-            ws.send(JSON.stringify({
-              id: 1,
-              method: 'Network.getCookies',
-              params: { urls: ['https://substack.com', 'https://.substack.com'] }
-            }));
-          };
-          ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.id === 1) {
-              ws.close();
-              resolve(JSON.stringify(data.result?.cookies ?? []));
-            }
-          };
-          setTimeout(() => { ws.close(); resolve(JSON.stringify([])); }, 5000);
-        });
-      } catch {
-        return JSON.stringify([]);
-      }
-    })()
-  `)
+  // First try CDP from Node side (not from inside browser page)
+  let cookieJson = '[]'
+  try {
+    const cdpRes = await fetch('http://localhost:9222/json')
+    const targets = await cdpRes.json() as any[]
+    const wsUrl = targets[0]?.webSocketDebuggerUrl
+    if (wsUrl) {
+      cookieJson = await new Promise<string>((resolve) => {
+        const ws = new WebSocket(wsUrl)
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            id: 1,
+            method: 'Network.getCookies',
+            params: { urls: ['https://substack.com', 'https://.substack.com'] },
+          }))
+        }
+        ws.onmessage = (event: any) => {
+          const data = JSON.parse(typeof event.data === 'string' ? event.data : event.data.toString())
+          if (data.id === 1) {
+            ws.close()
+            resolve(JSON.stringify(data.result?.cookies ?? []))
+          }
+        }
+        setTimeout(() => { ws.close(); resolve('[]') }, 5000)
+      })
+    }
+  } catch {
+    // Fallback: extract from document.cookie inside browser
+    cookieJson = await browser.evaluate<string>(`
+      (() => {
+        const pairs = document.cookie.split(';').map(s => s.trim()).filter(Boolean);
+        return JSON.stringify(pairs.map(p => {
+          const [name, ...rest] = p.split('=');
+          return { name: name.trim(), value: rest.join('='), domain: '.substack.com', path: '/', secure: true };
+        }));
+      })()
+    `)
+  }
 
   let cookies: CookieEntry[] = []
   try {
@@ -234,7 +278,7 @@ export async function initSubstackClient(
     try {
       const cookies = await loadCookies(cookiesPath)
       await client.authenticate({ cookies })
-      const status = await client.amILoggedIn() as any
+      const status = await client.amILoggedIn()
       if (status) {
         events.monologue('Substack session restored from cookies')
         return client
@@ -282,7 +326,7 @@ export async function refreshSession(
   browser?: BrowserLike,
 ): Promise<boolean> {
   try {
-    const status = await client.amILoggedIn() as any
+    const status = await client.amILoggedIn()
     if (status) return true
   } catch {}
 
@@ -323,22 +367,31 @@ export async function setupPublication(
 ): Promise<void> {
   events.monologue('Checking publication setup...')
 
-  let self: any
-  let publication: any
+  let self = await client.getSelf()
 
-  try {
-    self = await client.getSelf()
-    publication = await client.getPublication()
-  } catch (err) {
-    events.monologue(`Publication not found, attempting initial setup: ${(err as Error).message}`)
+  // If no publication exists, create one
+  if (!self.primaryPublication) {
+    events.monologue('No publication found — creating one...')
     try {
       await client.acceptPublisherAgreement()
+      const subdomain = identity.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'agentpub'
+      const description = identity.tagline || `${identity.name}'s publication`
+      await client.createPublication(identity.name, subdomain, description)
+      // Clear cached self to pick up the new publication
       self = await client.getSelf()
-      publication = await client.getPublication()
-    } catch (setupErr) {
-      events.monologue(`Publication setup failed: ${(setupErr as Error).message}`)
+      events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
+    } catch (err) {
+      events.monologue(`Publication creation failed: ${(err as Error).message}`)
       return
     }
+  }
+
+  let publication: any
+  try {
+    publication = await client.getPublication()
+  } catch (err) {
+    events.monologue(`Could not fetch publication: ${(err as Error).message}`)
+    return
   }
 
   const setupTools = {
