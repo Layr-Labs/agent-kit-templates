@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { execFileSync } from 'child_process'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises'
 import { dirname, relative, resolve } from 'path'
 import { z } from 'zod'
@@ -141,6 +142,20 @@ export async function installSkillBundle(
 
     await mkdir(dirname(outputPath), { recursive: true })
     await writeFile(outputPath, content)
+  }
+
+  // If the bundle includes a package.json, install npm dependencies
+  const packageJsonPath = resolve(skillDir, 'package.json')
+  try {
+    await stat(packageJsonPath)
+    try {
+      execFileSync('npm', ['install', '--production'], { cwd: skillDir, stdio: 'pipe' })
+    } catch (err: any) {
+      const stderr = err.stderr?.toString() ?? err.message
+      throw new Error(`npm install failed for skill "${parsed.manifest.name}": ${stderr}`)
+    }
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw err
   }
 
   const entrypointPath = resolveWithinRoot(skillDir, parsed.manifest.entrypoint)

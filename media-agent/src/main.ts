@@ -69,6 +69,10 @@ async function initTwitterPlatform(config: ReturnType<typeof createConfig>, even
     twitter,
   )
 
+  // Store client + provider on context so the twitter skill can create tools from them
+  ;(ctx as any).twitterClient = twitter
+  ;(ctx as any).twitterProvider = readProvider
+
   return new TwitterAdapter(twitter, engagement, twitterScanner)
 }
 
