@@ -10,6 +10,7 @@ import type { AgentIdentity } from '../../types.js'
 import type { BrowserLike } from '../../browser/types.js'
 import { generateTrackedText } from '../../ai/tracking.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
+import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
 
 const SUBSTACK_BASE = 'https://substack.com'
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
@@ -424,12 +425,7 @@ export async function setupPublication(
         author_bio: z.string().optional().describe('Author bio shown on the publication'),
         copyright: z.string().optional().describe('Copyright notice'),
       }),
-      execute: async (fields: Record<string, unknown>) => {
-        const clean = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))
-        if (Object.keys(clean).length === 0) return { success: true, message: 'Nothing to update' }
-        await client.updatePublication(clean)
-        return { success: true, updated: Object.keys(clean) }
-      },
+      execute: makeUpdatePublicationExecute(client),
     }),
 
     update_profile: tool({
@@ -439,12 +435,7 @@ export async function setupPublication(
         handle: z.string().optional().describe('Username handle'),
         bio: z.string().optional().describe('Short profile bio'),
       }),
-      execute: async (fields: Record<string, unknown>) => {
-        const clean = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))
-        if (Object.keys(clean).length === 0) return { success: true, message: 'Nothing to update' }
-        await client.updateProfile(clean as any)
-        return { success: true, updated: Object.keys(clean) }
-      },
+      execute: makeUpdateProfileExecute(client),
     }),
 
     list_categories: tool({

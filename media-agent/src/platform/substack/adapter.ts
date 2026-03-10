@@ -3,6 +3,7 @@ import type { PlatformAdapter, PublishOptions, PublishResult, Scanner } from '..
 import type { SubstackClient } from 'substack-skill'
 import type { SubstackEngagement } from './engagement.js'
 import type { SubstackScanner } from './scanner/index.js'
+import { uploadImageFromPath, uploadAndAttachImage } from './helpers.js'
 
 export class SubstackAdapter implements PlatformAdapter {
   readonly name = 'substack'
@@ -28,20 +29,15 @@ export class SubstackAdapter implements PlatformAdapter {
       const title = metadata?.title ?? 'Untitled'
       const builder = new PostBuilder()
 
-      // Header image
       if (opts.imagePath) {
         try {
-          const { readFileSync } = await import('fs')
-          const buffer = readFileSync(opts.imagePath)
-          const filename = opts.imagePath.split('/').pop() ?? 'image.png'
-          const uploaded = await this.client.uploadImage(buffer, filename)
+          const uploaded = await uploadImageFromPath(this.client, opts.imagePath)
           builder.image(uploaded.url, title)
         } catch (err) {
           this.events.monologue(`Header image upload failed: ${(err as Error).message}`)
         }
       }
 
-      // Article body — split into paragraphs
       for (const paragraph of opts.text.split('\n\n').filter(Boolean)) {
         builder.paragraph(paragraph)
       }
@@ -67,12 +63,7 @@ export class SubstackAdapter implements PlatformAdapter {
 
     if (opts.imagePath) {
       try {
-        const { readFileSync } = await import('fs')
-        const buffer = readFileSync(opts.imagePath)
-        const filename = opts.imagePath.split('/').pop() ?? 'image.png'
-        const uploaded = await this.client.uploadImage(buffer, filename)
-        const attachment = await this.client.attachImage(uploaded.url)
-        attachmentIds = [attachment.id]
+        attachmentIds = [await uploadAndAttachImage(this.client, opts.imagePath)]
       } catch (err) {
         this.events.monologue(`Note image upload failed: ${(err as Error).message}`)
       }

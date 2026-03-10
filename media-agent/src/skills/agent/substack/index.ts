@@ -1,9 +1,9 @@
-import { randomUUID } from 'crypto'
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { SubstackClient } from 'substack-skill'
-import type { Post } from '../../../types.js'
+import { buildPostBody, uploadAndAttachImage, makeUpdatePublicationExecute, makeUpdateProfileExecute } from '../../../platform/substack/helpers.js'
+import { trackPost } from './tracking.js'
 
 const skill: Skill = {
   name: 'substack',
@@ -139,25 +139,8 @@ const skill: Skill = {
           audience: z.enum(['everyone', 'only_paid', 'founding', 'only_free']).default('everyone'),
         }),
         execute: async ({ title, subtitle, sections, audience }) => {
-          const { PostBuilder } = await import('substack-skill')
-          const builder = new PostBuilder()
-
-          for (const section of sections) {
-            switch (section.type) {
-              case 'paragraph': builder.paragraph(section.text ?? ''); break
-              case 'heading': builder.heading(section.text ?? '', (section.level ?? 2) as 1 | 2 | 3 | 4 | 5 | 6); break
-              case 'blockquote': builder.blockquote(section.text ?? ''); break
-              case 'image': builder.image(section.src ?? '', section.alt, section.caption); break
-              case 'divider': builder.divider(); break
-              case 'bulletList': builder.bulletList(section.items ?? []); break
-              case 'orderedList': builder.orderedList(section.items ?? []); break
-              case 'codeBlock': builder.codeBlock(section.text ?? '', section.language); break
-              case 'youtube': builder.youtube(section.src ?? ''); break
-              case 'subscribeWidget': builder.subscribeWidget(section.text); break
-            }
-          }
-
-          const draft = await client.createDraft({ title, subtitle, body: builder.build(), audience })
+          const body = await buildPostBody(sections)
+          const draft = await client.createDraft({ title, subtitle, body, audience })
           return { id: draft.id, title: draft.draft_title, slug: draft.slug }
         },
       }),
@@ -189,10 +172,8 @@ const skill: Skill = {
           file_path: z.string().describe('Local file path of the image to upload'),
         }),
         execute: async ({ file_path }) => {
-          const { readFileSync } = await import('fs')
-          const buffer = readFileSync(file_path)
-          const filename = file_path.split('/').pop() ?? 'image.png'
-          const result = await client.uploadImage(buffer, filename)
+          const { uploadImageFromPath } = await import('../../../platform/substack/helpers.js')
+          const result = await uploadImageFromPath(client, file_path)
           return { url: result.url, width: result.imageWidth, height: result.imageHeight }
         },
       }),
@@ -245,23 +226,7 @@ const skill: Skill = {
           if (audience !== undefined) opts.audience = audience
 
           if (sections) {
-            const { PostBuilder } = await import('substack-skill')
-            const builder = new PostBuilder()
-            for (const section of sections) {
-              switch (section.type) {
-                case 'paragraph': builder.paragraph(section.text ?? ''); break
-                case 'heading': builder.heading(section.text ?? '', (section.level ?? 2) as 1 | 2 | 3 | 4 | 5 | 6); break
-                case 'blockquote': builder.blockquote(section.text ?? ''); break
-                case 'image': builder.image(section.src ?? '', section.alt, section.caption); break
-                case 'divider': builder.divider(); break
-                case 'bulletList': builder.bulletList(section.items ?? []); break
-                case 'orderedList': builder.orderedList(section.items ?? []); break
-                case 'codeBlock': builder.codeBlock(section.text ?? '', section.language); break
-                case 'youtube': builder.youtube(section.src ?? ''); break
-                case 'subscribeWidget': builder.subscribeWidget(section.text); break
-              }
-            }
-            opts.body = builder.build()
+            opts.body = await buildPostBody(sections)
           }
 
           const draft = await client.updateDraft(draft_id, opts)
@@ -288,24 +253,12 @@ const skill: Skill = {
         execute: async ({ draft_id }) => {
           const post = await client.publishDraft(draft_id)
 
-          // Record in state so dedup works (executor shows "ALREADY PUBLISHED" to LLM)
-          const record: Post = {
-            id: randomUUID(),
+          trackPost(ctx, {
             platformId: post.slug ?? String(post.id),
             text: post.title ?? '',
             type: 'article',
-            postedAt: Date.now(),
             articleUrl: post.canonical_url,
-            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
-          }
-          ctx.state.allPosts.push(record)
-
-          try {
-            ctx.db.run(
-              `INSERT INTO posts (id, platform_id, text, type, article_url, posted_at) VALUES (?, ?, ?, ?, ?, ?)`,
-              [record.id, record.platformId, record.text, record.type, record.articleUrl ?? null, record.postedAt],
-            )
-          } catch {}
+          })
 
           ctx.events.monologue(`Published: "${post.title}" → ${post.canonical_url}`)
           return { id: post.id, title: post.title, url: post.canonical_url }
@@ -324,32 +277,16 @@ const skill: Skill = {
           let attachmentIds: string[] | undefined
 
           if (image_path) {
-            const { readFileSync } = await import('fs')
-            const buffer = readFileSync(image_path)
-            const filename = image_path.split('/').pop() ?? 'image.png'
-            const uploaded = await client.uploadImage(buffer, filename)
-            const attachment = await client.attachImage(uploaded.url)
-            attachmentIds = [attachment.id]
+            attachmentIds = [await uploadAndAttachImage(client, image_path)]
           }
 
           const result = await client.postNote(content, attachmentIds)
 
-          // Track notes for dedup
-          const record: Post = {
-            id: randomUUID(),
+          trackPost(ctx, {
             platformId: (result as any)?.id?.toString() ?? Date.now().toString(),
             text: content.slice(0, 280),
             type: 'engagement',
-            postedAt: Date.now(),
-            engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
-          }
-          ctx.state.allPosts.push(record)
-          try {
-            ctx.db.run(
-              `INSERT INTO posts (id, platform_id, text, type, posted_at) VALUES (?, ?, ?, ?, ?)`,
-              [record.id, record.platformId, record.text, record.type, record.postedAt],
-            )
-          } catch {}
+          })
 
           return result
         },
@@ -476,12 +413,7 @@ const skill: Skill = {
           author_bio: z.string().optional().describe('Author bio'),
           copyright: z.string().optional().describe('Copyright notice'),
         }),
-        execute: async (fields: Record<string, unknown>) => {
-          const clean = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))
-          if (Object.keys(clean).length === 0) return { success: true, message: 'Nothing to update' }
-          await client.updatePublication(clean)
-          return { success: true, updated: Object.keys(clean) }
-        },
+        execute: makeUpdatePublicationExecute(client),
       }),
 
       update_profile: tool({
@@ -491,12 +423,7 @@ const skill: Skill = {
           handle: z.string().optional().describe('Username handle'),
           bio: z.string().optional().describe('Short profile bio'),
         }),
-        execute: async (fields: Record<string, unknown>) => {
-          const clean = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))
-          if (Object.keys(clean).length === 0) return { success: true, message: 'Nothing to update' }
-          await client.updateProfile(clean as any)
-          return { success: true, updated: Object.keys(clean) }
-        },
+        execute: makeUpdateProfileExecute(client),
       }),
 
       get_publication: tool({
