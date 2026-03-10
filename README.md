@@ -17,3 +17,7 @@ Each template is a standalone, deployable agent defined by three plain-text file
 - **constitution.md** — Governance rules (immutable constraints, financial commitments)
 
 Write the three files, pick a platform adapter (Twitter, Substack, etc.), and deploy.
+
+## License
+
+See [LICENSE](./LICENSE) for details.
