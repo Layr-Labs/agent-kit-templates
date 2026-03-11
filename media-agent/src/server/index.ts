@@ -33,6 +33,11 @@ export async function createServer(opts: {
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
 
   // Health
+  app.get('/health', async () => ({
+    status: 'ok',
+    agent: identity.name,
+    ts: Date.now(),
+  }))
   app.get('/api/health', async () => ({
     status: 'ok',
     agent: identity.name,
