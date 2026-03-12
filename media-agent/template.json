@@ -2,7 +2,7 @@
   "id": "media-agent",
   "name": "Media Agent",
   "description": "Autonomous media entity that publishes to Twitter and Substack",
-  "dockerfile": "docker/Dockerfile",
+  "dockerfile": "Dockerfile",
   "imageTag": "agentkit-media-agent:latest",
   "files": [
     { "name": "SOUL.md", "envKey": "SOUL_MD_B64", "required": true, "consentRequired": false },

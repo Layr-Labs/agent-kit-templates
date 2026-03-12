@@ -1,7 +1,6 @@
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
-import { join } from 'path'
-import { readFileSync } from 'fs'
+import { join, resolve } from 'path'
 import type { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import type { Database } from '../db/index.js'
@@ -18,19 +17,23 @@ import type { SkillRegistry } from '../skills/registry.js'
 import type { ProcessExecutor } from '../process/executor.js'
 import { getInstalledSkillsRoot, listInstalledSkillInventory } from '../skills/installed.js'
 import { handleProcessUpgrade } from '../upgrade/process.js'
+import type { CompiledAgent } from '../process/types.js'
+import { buildSiteBootstrap, loadWorldview } from './site.js'
 
 export async function createServer(opts: {
   events: EventBus
   config: Config
   db: Database
   identity: AgentIdentity
+  compiled: CompiledAgent
   skills: SkillRegistry
   executor: ProcessExecutor
   wallets?: { evm: string; solana: string }
 }) {
-  const { events, config, db, identity, skills, executor, wallets } = opts
+  const { events, config, db, identity, compiled, skills, executor, wallets } = opts
   const app = Fastify({ logger: false })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
+  const siteRoot = resolve(import.meta.dir, '../../site/dist')
 
   // Health
   app.get('/health', async () => ({
@@ -58,16 +61,22 @@ export async function createServer(opts: {
 
   // Worldview
   app.get('/api/worldview', async () => {
-    try {
-      const raw = readFileSync(join(config.dataDir, 'worldview.json'), 'utf-8')
-      return JSON.parse(raw)
-    } catch {
-      return { beliefs: identity.beliefs, punchesUp: identity.punchesUp, respects: (identity as any).respects ?? [] }
-    }
+    return loadWorldview(config, identity)
   })
 
   // Identity
   app.get('/api/identity', async () => identity)
+
+  // Site bootstrap
+  app.get('/api/site/bootstrap', async () => buildSiteBootstrap({
+    events,
+    config,
+    db,
+    identity,
+    compiled,
+    skills,
+    wallets,
+  }))
 
   // Skills
   app.get('/api/skills', async () => ({
@@ -175,10 +184,19 @@ export async function createServer(opts: {
   // Console SSE
   registerConsoleRoutes(app, events)
 
+  // Static site assets
+  await app.register(fastifyStatic, {
+    root: siteRoot,
+    prefix: '/site/',
+  })
+
+  app.get('/', async (_request, reply) => reply.sendFile('index.html'))
+  app.get('/favicon.svg', async (_request, reply) => reply.sendFile('eigen-symbol.svg'))
+
   // Static files for images
   try {
     await app.register(fastifyStatic, {
-      root: join(process.cwd(), config.dataDir, 'images'),
+      root: resolve(process.cwd(), config.dataDir, 'images'),
       prefix: '/images/',
       decorateReply: false,
     })

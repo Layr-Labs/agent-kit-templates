@@ -235,6 +235,7 @@ async function main() {
     config,
     db,
     identity,
+    compiled,
     skills,
     executor,
     wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
