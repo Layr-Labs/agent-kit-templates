@@ -25,7 +25,8 @@ RUN set -euo pipefail; \
         locales xdotool xclip imagemagick \
         x11vnc websockify \
         proxychains-ng \
-        python3-pip && \
+        python3-pip \
+        npm && \
       rm -rf /var/lib/apt/lists/* && \
       mkdir -p /opt/novnc; \
     } >"$log_file" 2>&1; then \
@@ -73,8 +74,11 @@ ENV DISPLAY=:99
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
 
 # ── App dependencies ─────────────────────────────────────────────────────
-COPY package.json bun.lock* ./
-RUN bun install --no-frozen-lockfile
+# Use npm in the Linux container so optional native packages like sharp pull
+# the correct linux-x64 binaries during image builds. The current dependency
+# graph also needs legacy peer resolution, which Bun already tolerates.
+COPY package.json package-lock.json bun.lock* ./
+RUN npm ci --include=optional --legacy-peer-deps
 
 # ── App source + config ──────────────────────────────────────────────────
 COPY site/ site/
