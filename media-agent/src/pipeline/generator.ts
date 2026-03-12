@@ -1,8 +1,7 @@
 import { Output } from 'ai'
-import { readFile, writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { z } from 'zod'
-import sharp from 'sharp'
 import { uploadToR2 } from '../cdn/r2.js'
 import type { ContentConcept, AgentIdentity } from '../types.js'
 import { Cache } from '../cache/cache.js'
@@ -20,7 +19,6 @@ const subjectExtractionSchema = z.object({
 
 export class Generator {
   private imageDir: string
-  private signatureBuffer: Buffer | null = null
   private refImageCache = new Map<string, string>()
   private stylePrompt: string
 
@@ -30,7 +28,6 @@ export class Generator {
     private config: Config,
     private identity: AgentIdentity,
     private style?: StyleConfig,
-    private signaturePath?: string,
   ) {
     this.imageDir = join(config.dataDir, 'images')
     this.stylePrompt = style ? buildStylePrompt(style) : ''
@@ -38,13 +35,6 @@ export class Generator {
 
   async init(): Promise<void> {
     await mkdir(this.imageDir, { recursive: true })
-    if (this.signaturePath) {
-      try {
-        this.signatureBuffer = await readFile(this.signaturePath)
-      } catch {
-        this.events.monologue('Signature file not found — content will be unsigned.')
-      }
-    }
   }
 
   async generate(
@@ -86,9 +76,7 @@ export class Generator {
           const file = files[0]
           const filename = `${concept.id}-v${i + 1}.png`
           const filepath = join(this.imageDir, filename)
-          const raw = Buffer.from(file.uint8Array)
-          const signed = await this.applySignature(raw)
-          await writeFile(filepath, signed)
+          await writeFile(filepath, Buffer.from(file.uint8Array))
           uploadToR2(filepath, 'images', this.config.r2).catch(() => {})
           variants.push(filepath)
           this.events.monologue(`Variant ${i + 1}/${variantCount} generated.`)
@@ -185,34 +173,6 @@ export class Generator {
 
     content.push({ type: 'text', text: prompt })
     return [{ role: 'user' as const, content }]
-  }
-
-  private async applySignature(imageBuffer: Buffer): Promise<Buffer> {
-    if (!this.signatureBuffer) return imageBuffer
-
-    try {
-      const image = sharp(imageBuffer)
-      const { width } = await image.metadata()
-      if (!width) return imageBuffer
-
-      const sigWidth = Math.round(width * 0.12)
-      const margin = Math.round(width * 0.02)
-
-      const resizedSig = await sharp(this.signatureBuffer)
-        .resize({ width: sigWidth, withoutEnlargement: true })
-        .toBuffer()
-
-      return image
-        .composite([{
-          input: resizedSig,
-          gravity: 'northeast',
-          top: margin,
-          left: width - sigWidth - margin,
-        }])
-        .toBuffer()
-    } catch {
-      return imageBuffer
-    }
   }
 
   private buildPrompt(concept: ContentConcept): string {
