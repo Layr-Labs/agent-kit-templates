@@ -9,6 +9,7 @@ RUN set -euo pipefail; \
     log_file="$(mktemp)"; \
     if ! { \
       apt-get -qq update && \
+      audio_pkg="$(if apt-cache show libasound2 >/dev/null 2>&1; then echo libasound2; else echo libasound2t64; fi)" && \
       apt-get -yqq install --no-install-recommends \
         wget gnupg2 ca-certificates curl \
         uuid-runtime \
@@ -17,10 +18,10 @@ RUN set -euo pipefail; \
         xvfb openbox dbus dbus-x11 xdg-utils x11-utils \
         libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
         libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 \
-        libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-        libdrm2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
-        libgtk-3-0 libdbus-1-3 \
-        libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
+        libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
+        libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 "${audio_pkg}" \
+        libpango-1.0-0 libpangocairo-1.0-0 libgtk-3-0 libudev1 libvulkan1 \
+        libxkbcommon0 libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
         locales xdotool xclip imagemagick \
         x11vnc websockify \
         proxychains-ng \
@@ -53,15 +54,13 @@ ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# ── Google Chrome ─────────────────────────────────────────────────────────
+# ── Google Chrome (official package payload, extracted directly) ──────────
 RUN set -euo pipefail; \
     log_file="$(mktemp)"; \
     if ! { \
       wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-      apt-get -qq update && \
-      apt-get -yqq install --no-install-recommends /tmp/chrome.deb && \
-      rm /tmp/chrome.deb && \
-      rm -rf /var/lib/apt/lists/*; \
+      dpkg-deb -x /tmp/chrome.deb / && \
+      rm /tmp/chrome.deb; \
     } >"$log_file" 2>&1; then \
       cat "$log_file"; \
       rm -f "$log_file"; \
