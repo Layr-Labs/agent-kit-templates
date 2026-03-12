@@ -11,6 +11,11 @@ import type { BrowserLike } from '../../browser/types.js'
 import { generateTrackedText } from '../../ai/tracking.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
+import {
+  extractSubstackOtpCandidates,
+  maskOtpCode,
+  type OtpCandidate,
+} from './otp.js'
 
 const SUBSTACK_BASE = 'https://substack.com'
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
@@ -21,6 +26,125 @@ async function derivePrivateKey(mnemonic: string): Promise<`0x${string}`> {
   const hd = HDKey.fromMasterSeed(seed)
   const derived = hd.derive("m/44'/60'/0'/0/0")
   return `0x${Buffer.from(derived.privateKey!).toString('hex')}` as `0x${string}`
+}
+
+interface LoginCompletionResult {
+  ok: boolean
+  error?: string
+  status?: number
+  statusText?: string
+  responseType?: string
+  redirected?: boolean
+  responseUrl?: string
+  body?: string
+  headers?: Record<string, string>
+  before?: {
+    url?: string
+    title?: string
+    readyState?: string
+  }
+  after?: {
+    url?: string
+    title?: string
+    readyState?: string
+  }
+}
+
+async function completeOtpLoginInBrowser(
+  browser: BrowserLike,
+  email: string,
+  code: string,
+): Promise<LoginCompletionResult> {
+  const raw = await browser.evaluate<string>(`
+    (async () => {
+      const snapshot = () => ({
+        url: window.location.href,
+        title: document.title,
+        readyState: document.readyState,
+      });
+
+      try {
+        const before = snapshot();
+        const res = await fetch('/api/v1/email-otp-login/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          redirect: 'manual',
+          body: JSON.stringify({
+            code: ${JSON.stringify(code)},
+            email: ${JSON.stringify(email)},
+            redirect: 'https://substack.com/',
+          }),
+        });
+        const headers = Object.fromEntries(
+          Array.from(res.headers.entries()).filter(([key]) =>
+            ['cache-control', 'content-type', 'location', 'server', 'cf-ray'].includes(key.toLowerCase())
+          ),
+        );
+        const body = await res.text().catch(() => '');
+        return JSON.stringify({
+          ok: res.type === 'opaqueredirect' || res.status === 302 || res.status === 0 || res.ok || res.status === 200,
+          status: res.status,
+          statusText: res.statusText,
+          responseType: res.type,
+          redirected: res.redirected,
+          responseUrl: res.url,
+          headers,
+          body: body.slice(0, 600),
+          before,
+          after: snapshot(),
+        });
+      } catch (e) {
+        return JSON.stringify({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+          before: snapshot(),
+          after: snapshot(),
+        });
+      }
+    })()
+  `)
+
+  try {
+    return JSON.parse(raw) as LoginCompletionResult
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Could not parse browser completion response: ${error instanceof Error ? error.message : String(error)}`,
+      body: raw.slice(0, 600),
+    }
+  }
+}
+
+function summarizeLoginCompletionFailure(
+  candidate: OtpCandidate,
+  result: LoginCompletionResult,
+): string {
+  const parts = [`candidate=${maskOtpCode(candidate.code)} via ${candidate.source}`]
+
+  if (typeof result.status === 'number') parts.push(`status=${result.status}`)
+  if (result.statusText) parts.push(`statusText=${result.statusText}`)
+  if (result.responseType) parts.push(`type=${result.responseType}`)
+  if (result.before?.url) parts.push(`page=${result.before.url}`)
+  if (result.responseUrl && result.responseUrl !== result.before?.url) parts.push(`response=${result.responseUrl}`)
+  if (result.headers && Object.keys(result.headers).length > 0) {
+    parts.push(`headers=${JSON.stringify(result.headers)}`)
+  }
+  if (result.body) parts.push(`body=${JSON.stringify(result.body)}`)
+  if (result.error) parts.push(`error=${result.error}`)
+
+  return parts.join(' | ')
+}
+
+async function loginViaDirectApi(
+  privateKey: `0x${string}`,
+  cookiesPath: string,
+): Promise<{ cookies: CookieEntry[]; email: string }> {
+  const { login } = await import('substack-skill')
+  return login({
+    eigenMailPrivateKey: privateKey,
+    cookiesPath,
+  })
 }
 
 /**
@@ -48,6 +172,16 @@ async function loginViaBrowser(
   events.monologue('Navigating to Substack (Cloudflare warmup)...')
   await browser.navigate('https://substack.com')
   await browser.waitMs(5000)
+
+  // Snapshot existing inbox state before requesting a new OTP so we do not
+  // accidentally classify the fresh verification email as stale.
+  const preExistingIds = new Set<string>()
+  try {
+    const before: any = await mail.inbox({ limit: 10 })
+    for (const m of (before?.messages ?? [])) {
+      if (m.id) preExistingIds.add(m.id)
+    }
+  } catch {}
 
   // Step 1: Request OTP — runs inside browser (same proxy, same CF session)
   events.monologue('Requesting login OTP via browser...')
@@ -78,18 +212,9 @@ async function loginViaBrowser(
   }
 
   // Step 2: Wait for OTP email by polling inbox (runs in Node, not browser)
-  // Collect message IDs that existed BEFORE the OTP request so we skip stale codes.
-  const preExistingIds = new Set<string>()
-  try {
-    const before: any = await mail.inbox({ limit: 10 })
-    for (const m of (before?.messages ?? [])) {
-      if (m.id) preExistingIds.add(m.id)
-    }
-  } catch {}
-
   events.monologue(`Waiting for OTP email... (${preExistingIds.size} pre-existing messages to skip)`)
 
-  let code: string | null = null
+  let otpCandidates: OtpCandidate[] = []
   for (let attempt = 0; attempt < 40; attempt++) {
     await new Promise(r => setTimeout(r, 3000))
 
@@ -106,78 +231,59 @@ async function loginViaBrowser(
         const subject = String(msg.subject ?? '').toLowerCase()
         if (!from.includes('substack') && !subject.includes('substack') && !subject.includes('verification')) continue
 
-        // Try extracting 6-digit code from subject
-        const subjectCode = String(msg.subject ?? '').match(/(\d{6})/)?.[1]
-        if (subjectCode) {
-          code = subjectCode
-          events.monologue(`Found OTP code in subject: ${msg.subject}`)
-          break
-        }
-
-        // Read full message body for code
         try {
           const full: any = await mail.read(msg.id)
-          const body = String(full?.body ?? full?.text ?? '')
-          const bodyCode = body.match(/\b(\d{6})\b/)?.[1]
-          if (bodyCode) {
-            code = bodyCode
-            events.monologue(`Found OTP code in body`)
+          otpCandidates = await extractSubstackOtpCandidates({
+            messageId: String(full?.id ?? msg.id ?? ''),
+            from: String(full?.from ?? msg.from ?? ''),
+            subject: String(full?.subject ?? msg.subject ?? ''),
+            preview: String(full?.preview ?? msg.preview ?? ''),
+            body: String(full?.body ?? full?.text ?? ''),
+            html: String(full?.html ?? ''),
+          }, events)
+          if (otpCandidates.length > 0) {
             break
           }
-        } catch {}
+        } catch (error) {
+          events.monologue(`Failed to inspect OTP email ${String(msg.id ?? '').slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`)
+        }
       }
 
-      if (code) break
+      if (otpCandidates.length > 0) break
     } catch (err) {
       events.monologue(`Inbox poll error: ${(err as Error).message}`)
     }
   }
 
-  if (!code) {
+  if (otpCandidates.length === 0) {
     throw new Error('Could not find Substack OTP code in inbox after 2 minutes.')
   }
 
-  events.monologue('Got OTP code, completing login via browser...')
+  events.monologue(`Got ${otpCandidates.length} OTP candidate(s), completing login via browser...`)
 
   // Step 3: Complete login with OTP — runs inside browser
-  // Use XMLHttpRequest instead of fetch to get Set-Cookie handling right.
-  // fetch() with redirect: 'manual' isn't available in all contexts, and
-  // the default redirect-follow can cause 400s when the redirect target
-  // doesn't expect a GET. XHR gives us raw access to the response.
-  const loginCompleteResult = await browser.evaluate<string>(`
-    (async () => {
-      try {
-        const res = await fetch('/api/v1/email-otp-login/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          redirect: 'manual',
-          body: JSON.stringify({
-            code: ${JSON.stringify(code)},
-            email: ${JSON.stringify(email)},
-            redirect: 'https://substack.com/',
-          }),
-        });
-        // redirect: manual means a 302 comes back as an opaque redirect response
-        // with status 0 and type 'opaqueredirect'. That's a success.
-        if (res.type === 'opaqueredirect' || res.status === 302 || res.status === 0) {
-          return JSON.stringify({ ok: true, redirected: true });
-        }
-        if (res.ok || res.status === 200) {
-          return JSON.stringify({ ok: true });
-        }
-        const body = await res.text().catch(() => '');
-        return JSON.stringify({ error: 'HTTP ' + res.status, body: body.slice(0, 500) });
-      } catch (e) {
-        return JSON.stringify({ error: e.message });
-      }
-    })()
-  `)
+  const completionFailures: string[] = []
+  let loginCompleted = false
 
-  const completeParsed = JSON.parse(loginCompleteResult)
-  if (completeParsed.error) {
-    events.monologue(`Login completion error: ${completeParsed.body ?? completeParsed.error}`)
-    throw new Error(`email-otp-login/complete failed: ${completeParsed.error}`)
+  for (let index = 0; index < otpCandidates.length; index++) {
+    const candidate = otpCandidates[index]
+    events.monologue(`Submitting OTP candidate ${index + 1}/${otpCandidates.length} (${maskOtpCode(candidate.code)} from ${candidate.source})...`)
+    const completeParsed = await completeOtpLoginInBrowser(browser, email, candidate.code)
+
+    if (completeParsed.ok) {
+      events.monologue(`OTP candidate ${index + 1}/${otpCandidates.length} accepted by Substack.`)
+      loginCompleted = true
+      break
+    }
+
+    const failureSummary = summarizeLoginCompletionFailure(candidate, completeParsed)
+    completionFailures.push(failureSummary)
+    events.monologue(`Login completion attempt ${index + 1} failed: ${failureSummary}`)
+    await browser.waitMs(1000)
+  }
+
+  if (!loginCompleted) {
+    throw new Error(`email-otp-login/complete failed after ${otpCandidates.length} attempt(s): ${completionFailures.join(' || ')}`)
   }
 
   // Wait for cookies to settle
@@ -314,19 +420,30 @@ export async function initSubstackClient(
     // Login through the browser — all API calls route through the residential
     // proxy, bypassing Cloudflare bot detection on datacenter IPs.
     events.monologue('Logging into Substack via browser...')
-    const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
-    events.monologue(`Logged into Substack as ${email}`)
-    await client.authenticate({ cookies })
-    return client
+    try {
+      const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
+      events.monologue(`Logged into Substack as ${email}`)
+      await client.authenticate({ cookies })
+      return client
+    } catch (error) {
+      events.monologue(`Browser-based Substack login failed: ${error instanceof Error ? error.message : String(error)}`)
+      events.monologue('Falling back to direct Substack API login...')
+      try {
+        const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
+        events.monologue(`Logged into Substack as ${email}`)
+        await client.authenticate({ cookies })
+        return client
+      } catch (fallbackError) {
+        throw new Error(
+          `Substack login failed. Browser flow: ${error instanceof Error ? error.message : String(error)}. Direct fallback: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+        )
+      }
+    }
   }
 
   // Fallback: direct API login (works from residential IPs, may fail from datacenter)
   events.monologue('Logging into Substack via API (direct, no browser)...')
-  const { login } = await import('substack-skill')
-  const { cookies, email } = await login({
-    eigenMailPrivateKey: privateKey,
-    cookiesPath,
-  })
+  const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
   events.monologue(`Logged into Substack as ${email}`)
   await client.authenticate({ cookies })
   return client
@@ -354,12 +471,19 @@ export async function refreshSession(
     const privateKey = await derivePrivateKey(mnemonic)
 
     if (browser) {
-      const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
-      await client.authenticate({ cookies })
-      events.monologue(`Re-authenticated as ${email}`)
+      try {
+        const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
+        await client.authenticate({ cookies })
+        events.monologue(`Re-authenticated as ${email}`)
+      } catch (error) {
+        events.monologue(`Browser re-authentication failed: ${error instanceof Error ? error.message : String(error)}`)
+        events.monologue('Falling back to direct Substack API re-authentication...')
+        const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
+        await client.authenticate({ cookies })
+        events.monologue(`Re-authenticated as ${email}`)
+      }
     } else {
-      const { login } = await import('substack-skill')
-      const { cookies, email } = await login({ eigenMailPrivateKey: privateKey, cookiesPath })
+      const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
       await client.authenticate({ cookies })
       events.monologue(`Re-authenticated as ${email}`)
     }
