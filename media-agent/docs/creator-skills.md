@@ -166,12 +166,19 @@ Important implications:
 - disabling a skill can restore a previous compiled hash
 - the agent should only reference tools that are actually installed and enabled
 
+## Model IDs
+
+The base runtime uses AI Gateway only.
+
+- Set `AI_GATEWAY_API_KEY` in the agent environment.
+- Use AI Gateway model IDs in `provider/model` format.
+- For Anthropic models, use the dotted gateway IDs such as `anthropic/claude-sonnet-4.6`, not raw provider aliases.
+
 ## Example Template
 
 A complete non-browser arXiv skill template lives in:
 
-- [`docs/templates/arxiv-skill/manifest.json.example`](/Users/gaj/.codex/worktrees/501e/agent-kit-templates/media-agent/docs/templates/arxiv-skill/manifest.json.example)
-- [`docs/templates/arxiv-skill/source/index.ts.example`](/Users/gaj/.codex/worktrees/501e/agent-kit-templates/media-agent/docs/templates/arxiv-skill/source/index.ts.example)
-- [`docs/templates/arxiv-skill/dist/index.mjs.example`](/Users/gaj/.codex/worktrees/501e/agent-kit-templates/media-agent/docs/templates/arxiv-skill/dist/index.mjs.example)
+- `docs/templates/arxiv-skill/manifest.json.example`
+- `docs/templates/arxiv-skill/source/index.ts.example`
 
 Use that as the starting point for new API/CLI-style creator skills.
