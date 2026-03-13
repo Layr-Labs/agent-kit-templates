@@ -27,13 +27,14 @@ describe('agent site server', () => {
     db = await createDatabase(join(tempRoot, 'agent.db'))
 
     db.run(
-      `INSERT INTO posts (id, platform_id, content_id, text, image_url, article_url, type, signature, signer_address, posted_at, likes, shares, comments, views, engagement_checked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO posts (id, platform_id, content_id, text, summary, image_url, article_url, type, signature, signer_address, posted_at, likes, shares, comments, views, engagement_checked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'post-1',
         'platform-1',
         'content-1',
         'The agent published a new deep dive on transformer telescopes.',
+        'A guided breakdown of the paper, what it actually proves, and where the uncertainty still sits.',
         join(tempRoot, 'images', 'header.png'),
         'https://example.com/deep-dive',
         'article',
@@ -135,7 +136,10 @@ describe('agent site server', () => {
 
     const payload = await response.json()
     expect(payload.identity.name).toBe('Peer')
+    expect(payload.copy.tabs.map((tab: { id: string }) => tab.id)).toEqual(['editorial', 'live', 'worldview', 'about'])
     expect(payload.worldview.themes).toEqual(['Machine learning', 'Astrophysics'])
+    expect(payload.processPlan.workflows).toEqual([])
+    expect(payload.editorial.posts[0].summary).toContain('guided breakdown')
     expect(payload.transparency.wallets.evm).toBe('0x1234')
     expect(payload.transparency.skills.active).toEqual([])
     expect(payload.editorial.total).toBe(1)

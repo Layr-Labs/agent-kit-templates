@@ -245,6 +245,13 @@ async function main() {
     skills,
     executor,
     wallets: { evm: wallet.ethAddress, solana: wallet.solAddress },
+    getSubstackPublicationUrl: config.platform === 'substack'
+      ? async () => {
+          const client = (ctx as any).substackClient as { getPublicationUrl?: () => Promise<string> } | undefined
+          if (!client?.getPublicationUrl) return null
+          return client.getPublicationUrl()
+        }
+      : undefined,
   })
   await app.listen({ port: config.port, host: '0.0.0.0' })
   console.log(`Media agent running on port ${config.port}`)

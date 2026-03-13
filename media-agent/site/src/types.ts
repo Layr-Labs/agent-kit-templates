@@ -11,6 +11,7 @@ export interface PublicPostRecord {
   platformId: string
   contentId: string | null
   text: string
+  summary?: string
   imageUrl?: string
   videoUrl?: string
   articleUrl?: string
@@ -84,6 +85,22 @@ export interface SiteBootstrapPayload {
     renderingRules: string
   } | null
   creativeProcess: string
+  processPlan: {
+    workflows: Array<{
+      name: string
+      instruction: string
+      priority: number
+      runOnce?: boolean
+      skills?: string[]
+      trigger: { intervalMs: number; timerKey: string }
+    }>
+    backgroundTasks: Array<{
+      name: string
+      skill: string
+      tool: string
+      trigger: { intervalMs: number; timerKey: string }
+    }>
+  }
   live: {
     state: string
     recentEvents: ConsoleEvent[]

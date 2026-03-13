@@ -7,6 +7,7 @@ export function trackPost(
   opts: {
     platformId: string
     text: string
+    summary?: string
     type: Post['type']
     articleUrl?: string
   },
@@ -15,6 +16,7 @@ export function trackPost(
     id: randomUUID(),
     platformId: opts.platformId,
     text: opts.text,
+    summary: opts.summary,
     type: opts.type,
     postedAt: Date.now(),
     articleUrl: opts.articleUrl,
@@ -23,8 +25,8 @@ export function trackPost(
   ctx.state.allPosts.push(record)
   try {
     ctx.db.run(
-      `INSERT INTO posts (id, platform_id, text, type, article_url, posted_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      [record.id, record.platformId, record.text, record.type, record.articleUrl ?? null, record.postedAt],
+      `INSERT INTO posts (id, platform_id, text, summary, type, article_url, posted_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [record.id, record.platformId, record.text, record.summary ?? null, record.type, record.articleUrl ?? null, record.postedAt],
     )
   } catch {}
 }

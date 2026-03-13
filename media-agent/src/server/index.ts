@@ -29,8 +29,9 @@ export async function createServer(opts: {
   skills: SkillRegistry
   executor: ProcessExecutor
   wallets?: { evm: string; solana: string }
+  getSubstackPublicationUrl?: () => Promise<string | null>
 }) {
-  const { events, config, db, identity, compiled, skills, executor, wallets } = opts
+  const { events, config, db, identity, compiled, skills, executor, wallets, getSubstackPublicationUrl } = opts
   const app = Fastify({ logger: false })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   const siteRoot = resolve(import.meta.dir, '../../site/dist')
@@ -66,6 +67,35 @@ export async function createServer(opts: {
 
   // Identity
   app.get('/api/identity', async () => identity)
+
+  app.get('/api/substack/publication', async (_req, reply) => {
+    if (config.platform !== 'substack' || !getSubstackPublicationUrl) {
+      reply.code(404)
+      return { error: 'Substack publication URL is not available for this agent.' }
+    }
+
+    try {
+      const url = await getSubstackPublicationUrl()
+      if (!url) {
+        reply.code(404)
+        return { error: 'Substack publication URL is not available yet.' }
+      }
+
+      return {
+        platform: 'substack',
+        url,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.toLowerCase().includes('no publication found')) {
+        reply.code(404)
+        return { error: 'Substack publication has not been created yet.' }
+      }
+
+      reply.code(502)
+      return { error: `Failed to resolve Substack publication URL: ${message}` }
+    }
+  })
 
   // Site bootstrap
   app.get('/api/site/bootstrap', async () => buildSiteBootstrap({

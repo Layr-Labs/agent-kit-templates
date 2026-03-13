@@ -1,5 +1,8 @@
-import { describe, expect, it, mock, afterEach } from 'bun:test'
-import { validateCompiledAgent } from '../src/process/compiler.js'
+import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { mkdtemp, rm } from 'fs/promises'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import { AgentCompiler, validateCompiledAgent } from '../src/process/compiler.js'
 import type { CompiledAgent } from '../src/process/types.js'
 
 function makeCompiled(overrides?: Partial<CompiledAgent>): CompiledAgent {
@@ -140,5 +143,91 @@ describe('validateCompiledAgent', () => {
     } finally {
       console.warn = originalWarn
     }
+  })
+})
+
+describe('AgentCompiler cache reuse', () => {
+  let tempRoot = ''
+
+  afterEach(async () => {
+    if (tempRoot) await rm(tempRoot, { recursive: true, force: true })
+  })
+
+  it('reuses the cached identity across a restart and reapplies the latest process plan', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'media-agent-compiler-'))
+
+    const runInference = mock(async () => ({
+      output: {
+        identity: {
+          name: 'Restart Agent',
+          tagline: 'Cached',
+          creator: '@creator',
+          born: '',
+          bio: '',
+          persona: 'Persistent persona',
+          beliefs: ['truth'],
+          themes: ['systems'],
+          punchesUp: ['bugs'],
+          respects: ['evidence'],
+          voice: 'plain',
+          restrictions: ['do not fabricate'],
+          motto: 'stay coherent',
+        },
+        governance: {
+          upgradeRules: ['only with consent'],
+          financialCommitments: [],
+          restrictions: ['do not fabricate'],
+        },
+      },
+    }))
+
+    const config = {
+      modelId: () => 'anthropic/claude-sonnet-4.6',
+      model: () => 'test-model',
+    } as any
+
+    const compiler = new AgentCompiler(config, tempRoot, runInference as any)
+    const first = await compiler.compile(
+      'same soul',
+      'same constitution',
+      {
+        backgroundTasks: [],
+        workflows: [{
+          name: 'Original plan',
+          trigger: { type: 'interval', intervalMs: 1000, timerKey: 'publish' },
+          instruction: 'Do the original thing.',
+          priority: 1,
+          skills: ['publisher'],
+        }],
+      },
+      'Original process',
+    )
+
+    expect(runInference).toHaveBeenCalledTimes(1)
+    expect(first.plan.workflows[0]?.name).toBe('Original plan')
+
+    const restartedCompiler = new AgentCompiler(config, tempRoot, mock(async () => {
+      throw new Error('compile should not run on restart when identity inputs are unchanged')
+    }) as any)
+
+    const restarted = await restartedCompiler.compile(
+      'same soul',
+      'same constitution',
+      {
+        backgroundTasks: [],
+        workflows: [{
+          name: 'Updated plan',
+          trigger: { type: 'interval', intervalMs: 2000, timerKey: 'publish' },
+          instruction: 'Do the updated thing.',
+          priority: 5,
+          skills: ['publisher'],
+        }],
+      },
+      'Updated process',
+    )
+
+    expect(restarted.identity.name).toBe('Restart Agent')
+    expect(restarted.plan.workflows[0]?.name).toBe('Updated plan')
+    expect(restarted.creativeProcess).toBe('Updated process')
   })
 })

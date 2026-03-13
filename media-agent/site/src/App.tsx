@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { EigenSymbol } from './eigen-symbol'
 import type { ConsoleEvent, PublicPostRecord, SiteBootstrapPayload, TabId } from './types'
 
-const TAB_ORDER: TabId[] = ['live', 'editorial', 'worldview', 'about']
+const TAB_ORDER: TabId[] = ['editorial', 'live', 'worldview', 'about']
 const LOAD_MORE_LIMIT = 12
 
 export default function App() {
@@ -427,40 +427,9 @@ export default function App() {
               </article>
             ) : (
               <>
-                <div className="editorial-grid">
+                  <div className="editorial-grid">
                   {editorialPosts.map((post) => (
-                    <article key={post.id} className="card editorial-card">
-                      {post.imageUrl && (
-                        <div className="editorial-image-wrap">
-                          <img className="editorial-image" src={post.imageUrl} alt="" loading="lazy" />
-                        </div>
-                      )}
-                      <div className="editorial-copy">
-                        <div className="card-heading">
-                          <p className="eyebrow">{formatPostType(post.type)}</p>
-                          <p className="meta-copy">{formatDateTime(post.postedAt)}</p>
-                        </div>
-                        <p className="editorial-text">{excerpt(post.text, 240)}</p>
-                        <dl className="engagement-row">
-                          <Metric label="Likes" value={formatCompactNumber(post.engagement.likes)} />
-                          <Metric label="Shares" value={formatCompactNumber(post.engagement.shares)} />
-                          <Metric label="Views" value={formatCompactNumber(post.engagement.views)} />
-                        </dl>
-                        <div className="editorial-actions">
-                          {post.articleUrl ? (
-                            <a className="button button-secondary" href={post.articleUrl} target="_blank" rel="noreferrer">
-                              Open article
-                            </a>
-                          ) : post.imageUrl ? (
-                            <a className="button button-secondary" href={post.imageUrl} target="_blank" rel="noreferrer">
-                              Open visual
-                            </a>
-                          ) : (
-                            <span className="meta-copy mono-copy">Platform ID: {post.platformId}</span>
-                          )}
-                        </div>
-                      </div>
-                    </article>
+                    <EditorialCard key={post.id} post={post} />
                   ))}
                 </div>
 
@@ -535,30 +504,82 @@ export default function App() {
                 </div>
               </article>
 
-              <article className="card">
+              <article className="card panel-wide">
+                <div className="card-heading">
+                  <p className="eyebrow">Process</p>
+                  <p className="meta-copy">
+                    {bootstrap.processPlan.workflows.length} workflows · {bootstrap.processPlan.backgroundTasks.length} background tasks
+                  </p>
+                </div>
+                <div className="process-grid">
+                  <section className="process-column">
+                    <h3>Workflows</h3>
+                    <ul className="process-list">
+                      {bootstrap.processPlan.workflows.map((workflow) => (
+                        <li key={workflow.trigger.timerKey}>
+                          <div className="process-item-head">
+                            <strong>{workflow.name}</strong>
+                            <span className="meta-copy">
+                              Every {formatInterval(workflow.trigger.intervalMs)} · priority {workflow.priority}
+                            </span>
+                          </div>
+                          <p className="body-copy">{workflow.instruction}</p>
+                          {workflow.skills && workflow.skills.length > 0 && (
+                            <div className="chip-list">
+                              {workflow.skills.map((skill) => (
+                                <span key={`${workflow.name}-${skill}`} className="chip">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  <section className="process-column">
+                    <h3>Background tasks</h3>
+                    <ul className="process-list">
+                      {bootstrap.processPlan.backgroundTasks.length > 0 ? bootstrap.processPlan.backgroundTasks.map((task) => (
+                        <li key={task.trigger.timerKey}>
+                          <div className="process-item-head">
+                            <strong>{task.name}</strong>
+                            <span className="meta-copy">Every {formatInterval(task.trigger.intervalMs)}</span>
+                          </div>
+                          <p className="body-copy">
+                            Runs <span className="mono-copy">{task.tool}</span>
+                            {task.skill ? ` from ${task.skill}` : ''}.
+                          </p>
+                        </li>
+                      )) : (
+                        <li>
+                          <p className="empty-state">No background tasks configured.</p>
+                        </li>
+                      )}
+                    </ul>
+                  </section>
+                </div>
+              </article>
+
+              <article className="card panel-wide">
                 <div className="card-heading">
                   <p className="eyebrow">Constitution</p>
                   <p className="meta-copy">Immutable rules</p>
                 </div>
-                <details className="details-card">
-                  <summary>Open full constitution</summary>
-                  <div className="longform-block">
-                    {renderLongform(bootstrap.identity.constitution)}
-                  </div>
-                </details>
+                <div className="longform-block">
+                  {renderLongform(bootstrap.identity.constitution)}
+                </div>
               </article>
 
-              <article className="card">
+              <article className="card panel-wide">
                 <div className="card-heading">
                   <p className="eyebrow">Creative process</p>
                   <p className="meta-copy">Current workflow</p>
                 </div>
-                <details className="details-card" open>
-                  <summary>Open workflow notes</summary>
-                  <div className="longform-block">
-                    {renderLongform(bootstrap.creativeProcess)}
-                  </div>
-                </details>
+                <div className="longform-block">
+                  {renderLongform(bootstrap.creativeProcess)}
+                </div>
               </article>
 
               <ListCard title="Upgrade rules" items={bootstrap.governance.upgradeRules} />
@@ -665,7 +686,44 @@ function WalletRow({
 
 function getInitialTab(): TabId {
   const next = window.location.hash.replace('#', '') as TabId
-  return TAB_ORDER.includes(next) ? next : 'about'
+  return TAB_ORDER.includes(next) ? next : 'editorial'
+}
+
+function EditorialCard({ post }: { post: PublicPostRecord }) {
+  const targetUrl = post.articleUrl ?? post.videoUrl ?? post.imageUrl
+  const content = (
+    <>
+      <div className="card-heading">
+        <p className="eyebrow">{formatPostType(post.type)}</p>
+        <p className="meta-copy">{formatDateTime(post.postedAt)}</p>
+      </div>
+      <h3 className="editorial-title">{getEditorialTitle(post)}</h3>
+      <p className="editorial-summary">{getEditorialSummary(post)}</p>
+      <div className="editorial-link-row">
+        {targetUrl ? (
+          <span className="editorial-link-label">
+            {post.articleUrl ? 'Read article' : 'Open post'}
+          </span>
+        ) : (
+          <span className="meta-copy mono-copy">Platform ID: {post.platformId}</span>
+        )}
+      </div>
+    </>
+  )
+
+  if (!targetUrl) {
+    return (
+      <article className="card editorial-card editorial-card-static">
+        <div className="editorial-copy">{content}</div>
+      </article>
+    )
+  }
+
+  return (
+    <a className="card editorial-card editorial-card-link" href={targetUrl}>
+      <div className="editorial-copy">{content}</div>
+    </a>
+  )
 }
 
 function createEventKey(event: ConsoleEvent): string {
@@ -692,6 +750,7 @@ function normalizePost(input: Record<string, unknown>): PublicPostRecord {
         ? String(input.content_id)
         : null,
     text: String(input.text ?? ''),
+    summary: input.summary ? String(input.summary) : undefined,
     imageUrl: normalizeMediaUrl(input.imageUrl ?? input.image_url),
     videoUrl: normalizeMediaUrl(input.videoUrl ?? input.video_url),
     articleUrl: input.articleUrl
@@ -779,6 +838,37 @@ function formatPostType(value: string): string {
       : value === 'article'
         ? 'Article'
         : formatStateLabel(value)
+}
+
+function getEditorialTitle(post: PublicPostRecord): string {
+  const title = post.text.trim()
+  if (!title) return formatPostType(post.type)
+  return excerpt(title, 120)
+}
+
+function getEditorialSummary(post: PublicPostRecord): string {
+  if (post.summary && post.summary.trim().length > 0) {
+    return excerpt(post.summary, 220)
+  }
+
+  if (post.type === 'article') {
+    return 'No article summary was archived for this piece yet.'
+  }
+
+  return excerpt(post.text, 220)
+}
+
+function formatInterval(intervalMs: number): string {
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+  const week = 7 * day
+
+  if (intervalMs % week === 0) return `${intervalMs / week}w`
+  if (intervalMs % day === 0) return `${intervalMs / day}d`
+  if (intervalMs % hour === 0) return `${intervalMs / hour}h`
+  if (intervalMs % minute === 0) return `${intervalMs / minute}m`
+  return `${Math.round(intervalMs / 1000)}s`
 }
 
 function excerpt(value: string, maxLength: number): string {

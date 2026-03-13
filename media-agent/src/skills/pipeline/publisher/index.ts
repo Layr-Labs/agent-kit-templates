@@ -17,9 +17,9 @@ const skill: Skill = {
   async init(ctx: SkillContext) {
     function savePost(post: Post): void {
       ctx.db.run(
-        `INSERT INTO posts (id, platform_id, content_id, text, image_url, video_url, article_url, reference_id, type, signature, signer_address, posted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [post.id, post.platformId, post.contentId ?? null, post.text, post.imageUrl ?? null, post.videoUrl ?? null, post.articleUrl ?? null, post.referenceId ?? null, post.type, post.signature ?? null, post.signerAddress ?? null, post.postedAt],
+        `INSERT INTO posts (id, platform_id, content_id, text, summary, image_url, video_url, article_url, reference_id, type, signature, signer_address, posted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [post.id, post.platformId, post.contentId ?? null, post.text, post.summary ?? null, post.imageUrl ?? null, post.videoUrl ?? null, post.articleUrl ?? null, post.referenceId ?? null, post.type, post.signature ?? null, post.signerAddress ?? null, post.postedAt],
       )
     }
 
@@ -156,6 +156,7 @@ const skill: Skill = {
             platformId: result.platformId,
             contentId: concept.id,
             text: article.title,
+            summary: article.subtitle,
             articleUrl: result.url,
             type: 'article',
             postedAt: Date.now(),
