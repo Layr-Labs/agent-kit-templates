@@ -1,17 +1,17 @@
 [models]
-scoring = "claude-haiku-4-5-20251001"
-ideation = "claude-opus-4-6"
+scoring = "anthropic/claude-haiku-4.5"
+ideation = "anthropic/claude-opus-4.6"
 generation = "google/gemini-3-pro-image"
-caption = "claude-haiku-4-5-20251001"
-editing = "claude-sonnet-4-6"
-writing = "claude-sonnet-4-6"
-engagement = "claude-haiku-4-5-20251001"
-monologue = "claude-haiku-4-5-20251001"
-reflection = "claude-sonnet-4-6"
-compilation = "claude-sonnet-4-6"
+caption = "anthropic/claude-haiku-4.5"
+editing = "anthropic/claude-sonnet-4.6"
+writing = "anthropic/claude-sonnet-4.6"
+engagement = "anthropic/claude-haiku-4.5"
+monologue = "anthropic/claude-haiku-4.5"
+reflection = "anthropic/claude-sonnet-4.6"
+compilation = "anthropic/claude-sonnet-4.6"
 
 [models.overrides]
-flagship_ideation = "claude-opus-4-6"
+flagship_ideation = "anthropic/claude-opus-4.6"
 
 [agent]
 tick_interval_ms = 30000

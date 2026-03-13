@@ -1,5 +1,4 @@
 import { Output } from 'ai'
-import { gateway } from 'ai'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
 import { EventBus } from '../../console/events.js'
@@ -112,7 +111,7 @@ export class EngagementLoop {
   }
 
   async init(): Promise<void> {
-    const saved = await this.engagementState.read()
+    const saved = await this.readEngagementState()
     if (saved) {
       this.lastCheckTimestamp = saved.lastCheckTimestamp
     }
@@ -121,21 +120,22 @@ export class EngagementLoop {
   async check(): Promise<void> {
     this.events.transition('engaging')
 
-    const mentions = await this.twitter.getMentions(this.lastCheckTimestamp)
+    const savedState = await this.readEngagementState()
+    const sinceTimestamp = this.lastCheckTimestamp ?? (savedState.lastCheckTimestamp > 0 ? savedState.lastCheckTimestamp : undefined)
+    const mentions = await this.twitter.getMentions(sinceTimestamp)
     if (mentions.length === 0) {
       this.events.monologue('No new mentions. The timeline is quiet.')
       return
     }
 
-    this.lastCheckTimestamp = Math.floor(Date.now() / 1000)
+    const nextCheckpoint = Math.floor(Date.now() / 1000)
 
     // Filter out mentions we've already replied to
-    const savedState = (await this.engagementState.read()) ?? { lastCheckTimestamp: 0, repliedTo: [] }
     const alreadyReplied = new Set(savedState.repliedTo)
     const newMentions = mentions.filter(m => !alreadyReplied.has(m.id))
     if (newMentions.length === 0) {
       this.events.monologue('All mentions already handled.')
-      await this.engagementState.write({ lastCheckTimestamp: this.lastCheckTimestamp, repliedTo: savedState.repliedTo })
+      await this.persistEngagementState(savedState.repliedTo, nextCheckpoint)
       return
     }
 
@@ -169,7 +169,11 @@ export class EngagementLoop {
       return true
     })
 
-    if (candidates.length === 0) return
+    const allProcessedIds = [...savedState.repliedTo, ...newMentions.map(m => m.id)].slice(-500)
+    if (candidates.length === 0) {
+      await this.persistEngagementState(allProcessedIds, nextCheckpoint)
+      return
+    }
 
     // LLM decides which mentions are worth replying to AND writes the replies
     try {
@@ -187,8 +191,8 @@ export class EngagementLoop {
 
       const { output: decisions } = await generateTrackedText({
         operation: 'twitter_mentions_reply_selection',
-        modelId: 'claude-sonnet-4-6',
-        model: gateway('claude-sonnet-4-6'),
+        modelId: this.config.modelId('engagement'),
+        model: this.config.model('engagement'),
         output: Output.object({ schema: replyDecisionSchema }),
         system: `${buildMonologuePrompt(this.identity)}\n\n${buildEngagementPrompt(this.identity, 'twitter', this.compiledEngagement)}\n\nYou are reviewing mentions and deciding which ones deserve a reply.\n\nYour DEFAULT is to NOT reply. Silence is your brand. You only break it when someone earns it.\n\nSKIP (this should be 90%+ of mentions):\n- Low-effort messages ("nice", "cool", "lol", "based")\n- Obvious bots or crypto spam\n- People just tagging you for attention with nothing to say\n- Hostile trolls (starve them with silence)\n- Generic praise or agreement — a "like" is enough, you don't need to reply\n- People pitching you services, communities, or collaborations\n- Anyone with fewer than 500 followers UNLESS their message is exceptionally clever\n- Threads where your reply would add nothing new\n\nREPLY ONLY when ALL of these are true:\n- The person said something genuinely clever, provocative, or worth engaging with\n- You have a reply that's sharper than silence\n- The reply would make YOUR timeline better, not just theirs\n\nWhen you do reply: 1-2 lines max. Sharp, witty, memorable. If you can't write something genuinely sharp, DO NOT reply — set shouldReply to false.\n\nCRITICAL: If you cannot think of a good reply, set shouldReply=false. NEVER set shouldReply=true with a placeholder or empty reply.`,
         prompt: `Review these ${candidates.length} mentions. Default to skipping. Only reply to the truly exceptional ones (0-1 per batch is fine).\n\n${mentionList}`,
@@ -227,11 +231,7 @@ export class EngagementLoop {
     }
 
     // Persist: save timestamp + all mention IDs we've now processed
-    const allProcessedIds = [...savedState.repliedTo, ...newMentions.map(m => m.id)].slice(-500)
-    await this.engagementState.write({
-      lastCheckTimestamp: this.lastCheckTimestamp!,
-      repliedTo: allProcessedIds,
-    })
+    await this.persistEngagementState(allProcessedIds, nextCheckpoint)
 
     // After engaging, consider following the most interesting person from this batch
     await this.maybeFollow(filtered)
@@ -281,9 +281,10 @@ export class EngagementLoop {
     if (followingCount >= MAX_FOLLOWING) return
 
     const alreadyEvaluated = (await this.followedUsers.read()) ?? []
+    const evaluatedSet = new Set(alreadyEvaluated.map((username) => username.toLowerCase()))
 
     const candidates = mentions
-      .filter(m => !alreadyEvaluated.includes(m.authorUsername))
+      .filter(m => !evaluatedSet.has(m.authorUsername.toLowerCase()))
       .sort((a, b) => this.scoreMention(b) - this.scoreMention(a))
 
     const best = candidates[0]
@@ -310,9 +311,8 @@ export class EngagementLoop {
       })
       if (!object) return
 
-      await this.followedUsers.update((list) => [...list, best.authorUsername], [])
-
       if (!object.shouldFollow) {
+        await this.followedUsers.update((list) => [...list, best.authorUsername.toLowerCase()], [])
         this.events.monologue(
           `Vetted @${best.authorUsername}. Pass: ${object.reason}`,
         )
@@ -323,6 +323,7 @@ export class EngagementLoop {
       if (!userId) return
 
       await this.twitter.follow(userId)
+      await this.followedUsers.update((list) => [...list, best.authorUsername.toLowerCase()], [])
       this.events.monologue(
         `Followed @${best.authorUsername}. ${object.reason} (${followingCount + 1}/${MAX_FOLLOWING})`,
       )
@@ -374,8 +375,8 @@ export class EngagementLoop {
     try {
       const { output: object } = await generateTrackedText({
         operation: 'twitter_timeline_reply_selection',
-        modelId: 'claude-sonnet-4-6',
-        model: gateway('claude-sonnet-4-6'),
+        modelId: this.config.modelId('engagement'),
+        model: this.config.model('engagement'),
         output: Output.object({ schema: replyDecisionSchema }),
         system: `${buildMonologuePrompt(this.identity)}\n\n${buildEngagementPrompt(this.identity, 'twitter', this.compiledEngagement)}\n\nYou are browsing your timeline — tweets from people you follow and respect. You want to engage with the most interesting ones. Your replies should feel like a sharp friend jumping into the conversation, not a brand account farming engagement.\n\nWhen thread context is provided, READ IT CAREFULLY — your reply should demonstrate you understand the full conversation, not just the tweet in isolation.\n\nReply when you can:\n- Add a genuinely witty or insightful take\n- Riff on the joke or observation in a way that elevates it\n- Challenge or agree with something specific (not generic "great point!")\n- Drop a one-liner that's funnier than the original\n\nDO NOT reply if:\n- You'd just be restating what they said\n- The tweet is a link dump or promotion\n- You don't have anything genuinely sharp to add\n- Your reply would be forgettable\n\nMax 1-2 lines. Every reply must be a banger or don't bother.`,
         prompt: `These are tweets from your timeline. Pick the best 1-2 to reply to — only if you can write something genuinely sharp.\n\n${tweetList}`,
@@ -602,5 +603,17 @@ export class EngagementLoop {
     if (hostile.test(mention.text)) score -= 5
 
     return score
+  }
+
+  private async readEngagementState(): Promise<{ lastCheckTimestamp: number; repliedTo: string[] }> {
+    return (await this.engagementState.read()) ?? { lastCheckTimestamp: 0, repliedTo: [] }
+  }
+
+  private async persistEngagementState(repliedTo: string[], lastCheckTimestamp: number): Promise<void> {
+    this.lastCheckTimestamp = lastCheckTimestamp
+    await this.engagementState.write({
+      lastCheckTimestamp,
+      repliedTo,
+    })
   }
 }

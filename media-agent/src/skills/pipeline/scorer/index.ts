@@ -2,6 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import { Scorer } from '../../../pipeline/scorer.js'
+import { getPostsNewestFirst } from '../../../process/state.js'
 
 let scorer: Scorer
 
@@ -22,9 +23,7 @@ const skill: Skill = {
           if (signals.length === 0) {
             return { topicCount: 0, message: 'No signals to score' }
           }
-          const recentSummaries = ctx.state.allPosts
-            .sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
-            .map(p => p.text)
+          const recentSummaries = getPostsNewestFirst(ctx.state.allPosts).map((post) => post.text)
           const topics = await scorer.scoreAndFilter(signals, recentSummaries)
 
           // Scoring establishes a new candidate set, so clear any downstream

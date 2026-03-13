@@ -1,5 +1,4 @@
 import { gateway } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
 
 export type ModelTask =
   | 'scoring'
@@ -13,8 +12,13 @@ export type ModelTask =
   | 'reflection'
   | 'compilation'
 
-const useGateway = !!process.env.AI_GATEWAY_API_KEY
 const agentModelOverride = process.env.AGENT_MODEL?.trim()
+
+export function assertAiGatewayConfigured(): void {
+  if (!process.env.AI_GATEWAY_API_KEY) {
+    throw new Error('AI_GATEWAY_API_KEY is required. Direct provider fallback has been removed.')
+  }
+}
 
 export function resolveModel(
   models: Record<string, string> & { overrides?: Record<string, string> },
@@ -30,8 +34,8 @@ export function resolveModel(
     throw new Error(`No model configured for task: ${task}`)
   }
 
-  if (useGateway) return gateway(modelId)
-  return anthropic(modelId)
+  assertAiGatewayConfigured()
+  return gateway(modelId)
 }
 
 export function resolveModelId(
@@ -43,7 +47,7 @@ export function resolveModelId(
   return resolveRuntimeModelOverride(task) ||
     (overrideKey && models.overrides?.[overrideKey]) ||
     models[task] ||
-    'claude-sonnet-4-6'
+    'anthropic/claude-sonnet-4.6'
 }
 
 function resolveRuntimeModelOverride(task: ModelTask): string | undefined {

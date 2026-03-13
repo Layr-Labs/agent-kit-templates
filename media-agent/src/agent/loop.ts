@@ -33,8 +33,10 @@ export class AgentLoop {
     while (this.running) {
       try {
         await this.executor.tick()
-        await this.agentAction()
-        await this.skills.tickAll()
+        if (!this.executor.hasRunningWorkflow()) {
+          await this.agentAction()
+          await this.skills.tickAll()
+        }
       } catch (err) {
         this.events.monologue(`Loop error: ${(err as Error).message}. Recovering...`)
       }

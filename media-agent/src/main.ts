@@ -89,9 +89,15 @@ async function initSubstackPlatform(mnemonic: string, events: EventBus, ctx: Ski
   ;(ctx as any).substackClient = client
 
   // LLM-driven publication setup (aligns publication with SOUL.md identity)
-  await setupPublication(client, ctx.identity, events, ctx.browser)
+  await setupPublication(client, ctx.identity, ctx.config, events, ctx.browser)
 
-  const engagement = new SubstackEngagement(client, events, ctx.identity)
+  const engagement = new SubstackEngagement(
+    client,
+    events,
+    ctx.config,
+    ctx.identity,
+    () => ctx.state.allPosts.length > 0,
+  )
   const rssFeeds = (process.env.RSS_FEEDS ?? '').split(',').filter(Boolean)
   const substackScanner = new SubstackScanner(rssFeeds)
 

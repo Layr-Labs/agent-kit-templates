@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { parse } from 'smol-toml'
 import { resolve } from 'path'
-import { resolveModel, resolveModelId, type ModelTask } from './models.js'
+import { assertAiGatewayConfigured, resolveModel, resolveModelId, type ModelTask } from './models.js'
 
 interface TomlConfig {
   models: Record<string, string> & { overrides?: Record<string, string>; reasoning_effort?: string }
@@ -37,6 +37,7 @@ function loadToml(configPath: string): TomlConfig {
 }
 
 export function createConfig(configPath?: string) {
+  assertAiGatewayConfigured()
   const toml = loadToml(configPath ?? resolve(process.cwd(), 'config.toml'))
   const testMode = process.env.TEST_MODE === 'true'
 

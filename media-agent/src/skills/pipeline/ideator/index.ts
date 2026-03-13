@@ -4,6 +4,7 @@ import type { Skill, SkillContext } from '../../types.js'
 import { Ideator } from '../../../pipeline/ideator.js'
 import { WorldviewStore } from '../../../agent/worldview.js'
 import { join } from 'path'
+import { getRecentPostTexts } from '../../../process/state.js'
 
 let ideator: Ideator
 
@@ -29,7 +30,7 @@ const skill: Skill = {
             return { error: 'No topics available. Run score_signals first.' }
           }
           topic.status = 'selected'
-          const recentPosts = ctx.state.allPosts.slice(-5).map(p => p.text)
+          const recentPosts = getRecentPostTexts(ctx.state.allPosts, 5)
           const concepts = await ideator.ideate(topic, count, recentPosts)
           ctx.state.concepts = concepts
           if (concepts.length === 1) {

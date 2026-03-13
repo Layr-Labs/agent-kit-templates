@@ -42,7 +42,7 @@ export function createPipelineState(db?: any): PipelineState {
         signerAddress: r.signer_address,
         postedAt: r.posted_at,
         engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
-      }))
+      })).reverse()
       if (allPosts.length > 0) {
         console.log(`Loaded ${allPosts.length} past posts from database.`)
       }
@@ -65,6 +65,15 @@ export function createPipelineState(db?: any): PipelineState {
     cachedSignals: [],
     custom: {},
   }
+}
+
+export function getPostsNewestFirst(posts: Post[]): Post[] {
+  return [...posts].sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
+}
+
+export function getRecentPostTexts(posts: Post[], limit: number): string[] {
+  if (limit <= 0) return []
+  return posts.slice(-limit).map((post) => post.text)
 }
 
 export function resetWorkflowState(state: PipelineState): void {

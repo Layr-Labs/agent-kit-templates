@@ -1,5 +1,4 @@
 import { Output, gateway } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { generateTrackedText } from '../../ai/tracking.js'
 import type { EventBus } from '../../console/events.js'
@@ -177,11 +176,7 @@ export async function extractSubstackOtpCandidates(
 }
 
 function resolveOtpExtractorModel(modelId: string) {
-  if (process.env.AI_GATEWAY_API_KEY) {
-    return gateway(modelId)
-  }
-
-  return anthropic(modelId.replace(/^anthropic\//, ''))
+  return gateway(modelId)
 }
 
 function trimForPrompt(value: string | undefined, maxLength = 2000): string {

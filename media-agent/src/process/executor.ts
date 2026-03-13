@@ -9,14 +9,24 @@ import { JsonStore } from '../store/json-store.js'
 import { buildPersonaPrompt } from '../prompts/identity.js'
 import type { AgentIdentity } from '../types.js'
 import { generateTrackedText } from '../ai/tracking.js'
+import { getPostsNewestFirst } from './state.js'
 
 type TimerState = Record<string, number>
+type GenerateTrackedText = typeof generateTrackedText
+
+interface ActiveWorkflowState {
+  name: string
+  finished: boolean
+  timedOut: boolean
+}
 
 export class ProcessExecutor {
   private timerStore: JsonStore<TimerState>
   private timers: TimerState = {}
   private completedOnce = new Set<string>()
   private personaPrompt: string
+  private activeWorkflow?: ActiveWorkflowState
+  private activeWorkflowNoticeAt = 0
 
   constructor(
     private plan: ProcessPlan,
@@ -27,6 +37,7 @@ export class ProcessExecutor {
     private identity: AgentIdentity,
     private creativeProcess: string,
     dataDir: string,
+    private generateText: GenerateTrackedText = generateTrackedText,
   ) {
     this.timerStore = new JsonStore(`${dataDir}/process-timers.json`)
     this.personaPrompt = buildPersonaPrompt(identity)
@@ -50,6 +61,18 @@ export class ProcessExecutor {
   async tick(): Promise<void> {
     const now = Date.now()
 
+    if (this.hasRunningWorkflow()) {
+      const noticeIntervalMs = Math.max(this.config.tickIntervalMs ?? 0, 15000)
+      if ((now - this.activeWorkflowNoticeAt) >= noticeIntervalMs) {
+        this.events.monologue(
+          `Workflow "${this.activeWorkflow?.name}" is still settling after timeout. Skipping scheduled work this tick.`,
+        )
+        this.activeWorkflowNoticeAt = now
+      }
+      return
+    }
+    this.activeWorkflowNoticeAt = 0
+
     // 1. Workflows first (content creation takes priority)
     const sorted = [...this.plan.workflows].sort((a, b) => b.priority - a.priority)
 
@@ -57,21 +80,35 @@ export class ProcessExecutor {
       if (workflow.runOnce && this.completedOnce.has(workflow.trigger.timerKey)) continue
       if (this.shouldFire(workflow.trigger, now)) {
         const success = await this.executeWorkflow(workflow)
-        this.markFired(workflow.trigger, now)
-        if (success && workflow.runOnce) this.completedOnce.add(workflow.trigger.timerKey)
-        if (success) break
+        if (success) {
+          this.markFired(workflow.trigger, now)
+          if (workflow.runOnce) this.completedOnce.add(workflow.trigger.timerKey)
+          break
+        }
+        if (this.hasRunningWorkflow()) {
+          return
+        }
       }
     }
 
     // 2. Background tasks after (scan, engage, reflect)
     for (const task of this.plan.backgroundTasks) {
+      if (this.hasRunningWorkflow()) {
+        return
+      }
       if (this.shouldFire(task.trigger, now)) {
-        await this.executeBackgroundTask(task)
-        this.markFired(task.trigger, now)
+        const success = await this.executeBackgroundTask(task)
+        if (success) {
+          this.markFired(task.trigger, now)
+        }
       }
     }
 
     await this.timerStore.write(this.timers)
+  }
+
+  hasRunningWorkflow(): boolean {
+    return !!this.activeWorkflow && !this.activeWorkflow.finished
   }
 
   private getEffectiveInterval(trigger: Trigger): number {
@@ -97,22 +134,23 @@ export class ProcessExecutor {
     }
   }
 
-  private async executeBackgroundTask(task: BackgroundTask): Promise<void> {
+  private async executeBackgroundTask(task: BackgroundTask): Promise<boolean> {
     const toolFn = this.skills.tools[task.tool] as any
     if (!toolFn) {
       this.events.monologue(`Background task "${task.name}": tool "${task.tool}" not found.`)
-      return
+      return false
     }
     try {
       await toolFn.execute({})
+      return true
     } catch (err) {
       this.events.monologue(`Background task "${task.name}" error: ${(err as Error).message}`)
+      return false
     }
   }
 
   private recentPostsSummary(): string {
-    const posts = this.state.allPosts
-      .sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
+    const posts = getPostsNewestFirst(this.state.allPosts)
     if (posts.length === 0) return ''
     const entries = posts.map(p => {
       const age = Math.round((Date.now() - (p.postedAt ?? 0)) / 3600000)
@@ -136,7 +174,15 @@ ${entries.join('\n')}
     this.events.monologue(`Starting workflow: ${workflow.name}`)
     resetWorkflowState(this.state)
 
-    const workflowTimeoutMs = 25 * 60 * 1000 // 25 minutes max per workflow
+    const workflowTimeoutMs = resolveWorkflowTimeoutMs()
+    const abortController = new AbortController()
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    const activeWorkflow: ActiveWorkflowState = {
+      name: workflow.name,
+      finished: false,
+      timedOut: false,
+    }
+    this.activeWorkflow = activeWorkflow
 
     try {
       // Scope tools: if the workflow declares skills, resolve only those skills' tools.
@@ -145,13 +191,16 @@ ${entries.join('\n')}
         ? this.skills.resolveWorkflowTools(workflow.skills)
         : this.skills.tools
 
-      const workflowPromise = generateTrackedText({
-        operation: `workflow:${workflow.name}`,
-        modelId: this.config.modelId('ideation'),
-        model: this.config.model('ideation'),
-        tools,
-        stopWhen: stepCountIs(120),
-        system: `<persona>
+      const workflowPromise: Promise<boolean> = (async () => {
+        try {
+          const { text, steps } = await this.generateText({
+            operation: `workflow:${workflow.name}`,
+            modelId: this.config.modelId('ideation'),
+            model: this.config.model('ideation'),
+            tools,
+            stopWhen: stepCountIs(120),
+            abortSignal: abortController.signal,
+            system: `<persona>
 ${this.personaPrompt}
 </persona>
 
@@ -186,33 +235,66 @@ Use your tools in whatever order makes sense to achieve the objective.
 <output_rules>
 Think out loud about what you're doing — your thoughts are broadcast live to your audience.
 </output_rules>`,
-        prompt: `<objective>
+            prompt: `<objective>
 ${workflow.instruction}
 </objective>
 ${this.recentPostsSummary()}`,
-        providerOptions: {
-          anthropic: { cacheControl: { type: 'ephemeral' } },
-          ...(this.config.reasoningEffort ? { openai: { reasoningEffort: this.config.reasoningEffort } } : {}),
-        },
+            providerOptions: {
+              anthropic: { cacheControl: { type: 'ephemeral' } },
+              ...(this.config.reasoningEffort ? { openai: { reasoningEffort: this.config.reasoningEffort } } : {}),
+            },
+          })
+
+          const toolCalls = steps.flatMap((s: any) => s.toolCalls ?? [])
+          this.events.monologue(`Workflow "${workflow.name}" completed. Used ${toolCalls.length} tool(s): ${toolCalls.map((c: any) => c.toolName).join(', ')}`)
+
+          if (text) {
+            this.events.monologue(text.slice(0, 300))
+          }
+
+          return true
+        } catch (err) {
+          if (!activeWorkflow.timedOut) {
+            this.events.monologue(`Workflow "${workflow.name}" error: ${(err as Error).message}`)
+          }
+          return false
+        } finally {
+          activeWorkflow.finished = true
+          if (this.activeWorkflow === activeWorkflow) {
+            this.activeWorkflow = undefined
+          }
+        }
+      })()
+
+      void workflowPromise.then(async (success) => {
+        if (!activeWorkflow.timedOut || !success) return
+        this.markFired(workflow.trigger, Date.now())
+        if (workflow.runOnce) this.completedOnce.add(workflow.trigger.timerKey)
+        await this.timerStore.write(this.timers)
+        this.events.monologue(
+          `Workflow "${workflow.name}" completed after timeout. Timers updated to avoid duplicate reruns.`,
+        )
       })
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Workflow "${workflow.name}" timed out after ${workflowTimeoutMs / 1000}s`)), workflowTimeoutMs),
-      )
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          activeWorkflow.timedOut = true
+          abortController.abort()
+          reject(new Error(`Workflow "${workflow.name}" timed out after ${workflowTimeoutMs / 1000}s`))
+        }, workflowTimeoutMs)
+      })
 
-      const { text, steps } = await Promise.race([workflowPromise, timeoutPromise]) as any
-
-      const toolCalls = steps.flatMap((s: any) => s.toolCalls ?? [])
-      this.events.monologue(`Workflow "${workflow.name}" completed. Used ${toolCalls.length} tool(s): ${toolCalls.map((c: any) => c.toolName).join(', ')}`)
-
-      if (text) {
-        this.events.monologue(text.slice(0, 300))
-      }
-
-      return true
+      return await Promise.race([workflowPromise, timeoutPromise])
     } catch (err) {
       this.events.monologue(`Workflow "${workflow.name}" error: ${(err as Error).message}`)
       return false
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle)
     }
   }
+}
+
+function resolveWorkflowTimeoutMs(): number {
+  const raw = Number(process.env.WORKFLOW_TIMEOUT_MS ?? 25 * 60 * 1000)
+  return Number.isFinite(raw) && raw > 0 ? raw : 25 * 60 * 1000
 }

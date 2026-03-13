@@ -2,6 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import { Captioner } from '../../../pipeline/captioner.js'
+import { getRecentPostTexts } from '../../../process/state.js'
 
 let captioner: Captioner
 
@@ -21,7 +22,7 @@ const skill: Skill = {
           if (!ctx.state.bestConcept) {
             return { error: 'No concept selected. Run generate_concepts first.' }
           }
-          const recentCaptions = ctx.state.allPosts.slice(-10).map(p => p.text)
+          const recentCaptions = getRecentPostTexts(ctx.state.allPosts, 10)
           const caption = await captioner.generate(ctx.state.bestConcept, recentCaptions)
           ctx.state.caption = caption
           return { caption }

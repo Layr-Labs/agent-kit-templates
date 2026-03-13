@@ -1,7 +1,8 @@
-import { Output, gateway } from 'ai'
+import { Output } from 'ai'
 import { z } from 'zod'
 import type { SubstackClient } from 'substack-skill'
 import type { EventBus } from '../../console/events.js'
+import type { Config } from '../../config/index.js'
 import type { AgentIdentity } from '../../types.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { generateTrackedText } from '../../ai/tracking.js'
@@ -16,20 +17,21 @@ const engagementDecisionSchema = z.object({
 
 export class SubstackEngagement {
   private personaPrompt: string
+  private hasPublishedSinceBoot = false
 
   constructor(
     private client: SubstackClient,
     private events: EventBus,
+    private config: Config,
     identity: AgentIdentity,
-    private model: string = 'claude-haiku-4-5-20251001',
+    private hasPublishedContent?: () => boolean,
   ) {
     this.personaPrompt = buildPersonaPrompt(identity)
   }
 
-  private hasPublishedContent = false
-
   async check(): Promise<void> {
-    if (!this.hasPublishedContent) {
+    const hasPublishedContent = this.hasPublishedSinceBoot || this.hasPublishedContent?.() === true
+    if (!hasPublishedContent) {
       this.events.monologue('No published content yet — skipping engagement check.')
       return
     }
@@ -59,8 +61,8 @@ export class SubstackEngagement {
 
       const { output: object } = await generateTrackedText({
         operation: 'substack_engagement',
-        modelId: this.model,
-        model: gateway(this.model),
+        modelId: this.config.modelId('engagement'),
+        model: this.config.model('engagement'),
         output: Output.object({ schema: engagementDecisionSchema }),
         system: `${this.personaPrompt}\n\n<engagement_task platform="substack">\n  <task>Decide which comments to react to (heart).</task>\n  <react_to>Thoughtful comments, genuine questions, and interesting perspectives.</react_to>\n  <skip>Spam, generic praise, or low-effort comments.</skip>\n</engagement_task>`,
         prompt: `<recent_activity>\n${commentItems.map((item: any) =>
@@ -91,6 +93,6 @@ export class SubstackEngagement {
   }
 
   markContentPublished(): void {
-    this.hasPublishedContent = true
+    this.hasPublishedSinceBoot = true
   }
 }

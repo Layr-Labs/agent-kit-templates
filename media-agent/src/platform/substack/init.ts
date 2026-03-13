@@ -3,9 +3,10 @@ import { existsSync } from 'fs'
 import { mnemonicToSeedSync } from 'bip39'
 import { SubstackClient, loadCookies, saveCookies } from 'substack-skill'
 import type { CookieEntry } from 'substack-skill'
-import { tool, gateway } from 'ai'
+import { tool } from 'ai'
 import { z } from 'zod'
 import type { EventBus } from '../../console/events.js'
+import type { Config } from '../../config/index.js'
 import type { AgentIdentity } from '../../types.js'
 import type { BrowserLike } from '../../browser/types.js'
 import { generateTrackedText } from '../../ai/tracking.js'
@@ -19,6 +20,13 @@ import {
 
 const SUBSTACK_BASE = 'https://substack.com'
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+
+export interface CdpBrowserTarget {
+  type?: string
+  url?: string
+  title?: string
+  webSocketDebuggerUrl?: string
+}
 
 async function derivePrivateKey(mnemonic: string): Promise<`0x${string}`> {
   const { HDKey } = await import('viem/accounts')
@@ -156,6 +164,187 @@ interface BrowserFetchJsonResult<T = unknown> {
   body: string
   json: T | null
   error?: string
+}
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '')
+}
+
+export function resolveCdpJsonEndpoint(): string {
+  const cdpPort = Number(process.env.CDP_PORT || 9222)
+  const cdpUrl = process.env.CDP_URL?.trim() || `http://localhost:${cdpPort}`
+  return `${trimTrailingSlashes(cdpUrl)}/json`
+}
+
+function normalizeComparableUrl(value?: string): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    url.hash = ''
+    return trimTrailingSlashes(url.toString())
+  } catch {
+    return null
+  }
+}
+
+function hostnameForUrl(value?: string): string | null {
+  if (!value) return null
+  try {
+    return new URL(value).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function buildCookieLookupUrls(currentUrl?: string): string[] {
+  const urls = [SUBSTACK_BASE]
+
+  const normalizedCurrent = normalizeComparableUrl(currentUrl)
+  if (normalizedCurrent) {
+    urls.push(normalizedCurrent)
+    try {
+      urls.push(new URL(normalizedCurrent).origin)
+    } catch {}
+  }
+
+  return [...new Set(urls)]
+}
+
+export function selectCdpTarget(
+  targets: CdpBrowserTarget[],
+  currentUrl?: string,
+): CdpBrowserTarget | null {
+  const withDebugger = targets.filter((target) => typeof target.webSocketDebuggerUrl === 'string' && target.webSocketDebuggerUrl.length > 0)
+  const pages = withDebugger.filter((target) => target.type === 'page')
+
+  const normalizedCurrent = normalizeComparableUrl(currentUrl)
+  if (normalizedCurrent) {
+    const exact = pages.find((target) => normalizeComparableUrl(target.url) === normalizedCurrent)
+    if (exact) return exact
+  }
+
+  const currentHost = hostnameForUrl(currentUrl)
+  if (currentHost) {
+    const sameHost = pages.find((target) => hostnameForUrl(target.url) === currentHost)
+    if (sameHost) return sameHost
+  }
+
+  const substackPage = pages.find((target) => {
+    const host = hostnameForUrl(target.url)
+    return !!host && (host === 'substack.com' || host.endsWith('.substack.com'))
+  })
+  if (substackPage) return substackPage
+
+  return pages[0] ?? withDebugger[0] ?? null
+}
+
+function parseSubstackCookies(cookieJson: string): CookieEntry[] {
+  try {
+    const rawCookies = JSON.parse(cookieJson) as any[]
+    return rawCookies
+      .filter((cookie: any) => typeof cookie?.domain === 'string' && cookie.domain.includes('substack'))
+      .map((cookie: any) => ({
+        name: String(cookie.name ?? ''),
+        value: String(cookie.value ?? ''),
+        domain: cookie.domain ?? '.substack.com',
+        path: cookie.path ?? '/',
+        secure: cookie.secure ?? false,
+      }))
+      .filter((cookie) => cookie.name.length > 0)
+  } catch {
+    return []
+  }
+}
+
+async function readDocumentCookies(browser: BrowserLike): Promise<CookieEntry[]> {
+  const cookieJson = await browser.evaluate<string>(`
+    (() => {
+      const pairs = document.cookie.split(';').map(s => s.trim()).filter(Boolean);
+      return JSON.stringify(pairs.map(p => {
+        const [name, ...rest] = p.split('=');
+        return { name: name.trim(), value: rest.join('='), domain: '.substack.com', path: '/', secure: true };
+      }));
+    })()
+  `)
+
+  return parseSubstackCookies(cookieJson)
+}
+
+async function readCdpCookies(browser: BrowserLike): Promise<CookieEntry[] | null> {
+  const currentUrl = await browser.currentUrl().catch(() => '')
+  const cdpRes = await fetch(resolveCdpJsonEndpoint())
+  if (!cdpRes.ok) {
+    throw new Error(`CDP target discovery failed: ${cdpRes.status} ${cdpRes.statusText}`)
+  }
+
+  const targets = await cdpRes.json() as CdpBrowserTarget[]
+  const target = selectCdpTarget(targets, currentUrl)
+  if (!target?.webSocketDebuggerUrl) {
+    return null
+  }
+
+  const cookieJson = await new Promise<string>((resolve) => {
+    const ws = new WebSocket(target.webSocketDebuggerUrl!)
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        id: 1,
+        method: 'Network.getCookies',
+        params: { urls: buildCookieLookupUrls(currentUrl) },
+      }))
+    }
+
+    ws.onmessage = (event: any) => {
+      const data = JSON.parse(typeof event.data === 'string' ? event.data : event.data.toString())
+      if (data.id === 1) {
+        ws.close()
+        resolve(JSON.stringify(data.result?.cookies ?? []))
+      }
+    }
+
+    ws.onerror = () => {
+      ws.close()
+      resolve('[]')
+    }
+
+    setTimeout(() => {
+      ws.close()
+      resolve('[]')
+    }, 5000)
+  })
+
+  const cookies = parseSubstackCookies(cookieJson)
+  return cookies.length > 0 ? cookies : null
+}
+
+async function extractBrowserSessionCookies(
+  browser: BrowserLike,
+  events: EventBus,
+): Promise<CookieEntry[]> {
+  events.monologue('Extracting session cookies...')
+
+  try {
+    const cdpCookies = await readCdpCookies(browser)
+    if (cdpCookies && cdpCookies.length > 0) {
+      return cdpCookies
+    }
+    events.monologue('CDP cookie extraction returned no Substack cookies. Falling back to document.cookie.')
+  } catch (error) {
+    events.monologue(`CDP cookie extraction failed: ${error instanceof Error ? error.message : String(error)}. Falling back to document.cookie.`)
+  }
+
+  return readDocumentCookies(browser)
+}
+
+export async function authenticateVerifiedSession(
+  client: Pick<SubstackClient, 'authenticate' | 'amILoggedIn'>,
+  cookies: CookieEntry[],
+): Promise<void> {
+  await client.authenticate({ cookies })
+  const status = await client.amILoggedIn()
+  if (!status) {
+    throw new Error('Authenticated cookies did not yield a logged-in Substack session.')
+  }
 }
 
 async function getFreshSelf(client: SubstackClient): Promise<any> {
@@ -473,62 +662,7 @@ async function loginViaBrowser(
   // Wait for cookies to settle
   await browser.waitMs(2000)
 
-  // Extract cookies from the browser.
-  // Use document.cookie (gets non-httpOnly cookies) + CDP via Node fetch (gets all cookies).
-  events.monologue('Extracting session cookies...')
-
-  // First try CDP from Node side (not from inside browser page)
-  let cookieJson = '[]'
-  try {
-    const cdpRes = await fetch('http://localhost:9222/json')
-    const targets = await cdpRes.json() as any[]
-    const wsUrl = targets[0]?.webSocketDebuggerUrl
-    if (wsUrl) {
-      cookieJson = await new Promise<string>((resolve) => {
-        const ws = new WebSocket(wsUrl)
-        ws.onopen = () => {
-          ws.send(JSON.stringify({
-            id: 1,
-            method: 'Network.getCookies',
-            params: { urls: ['https://substack.com', 'https://.substack.com'] },
-          }))
-        }
-        ws.onmessage = (event: any) => {
-          const data = JSON.parse(typeof event.data === 'string' ? event.data : event.data.toString())
-          if (data.id === 1) {
-            ws.close()
-            resolve(JSON.stringify(data.result?.cookies ?? []))
-          }
-        }
-        setTimeout(() => { ws.close(); resolve('[]') }, 5000)
-      })
-    }
-  } catch {
-    // Fallback: extract from document.cookie inside browser
-    cookieJson = await browser.evaluate<string>(`
-      (() => {
-        const pairs = document.cookie.split(';').map(s => s.trim()).filter(Boolean);
-        return JSON.stringify(pairs.map(p => {
-          const [name, ...rest] = p.split('=');
-          return { name: name.trim(), value: rest.join('='), domain: '.substack.com', path: '/', secure: true };
-        }));
-      })()
-    `)
-  }
-
-  let cookies: CookieEntry[] = []
-  try {
-    const rawCookies = JSON.parse(cookieJson) as any[]
-    cookies = rawCookies
-      .filter((c: any) => c.domain?.includes('substack'))
-      .map((c: any) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain ?? '.substack.com',
-        path: c.path ?? '/',
-        secure: c.secure ?? false,
-      }))
-  } catch {}
+  const cookies = await extractBrowserSessionCookies(browser, events)
 
   if (cookies.length === 0) {
     throw new Error('Login completed but no cookies could be extracted from browser.')
@@ -585,12 +719,9 @@ export async function initSubstackClient(
   if (existsSync(cookiesPath)) {
     try {
       const cookies = await loadCookies(cookiesPath)
-      await client.authenticate({ cookies })
-      const status = await client.amILoggedIn()
-      if (status) {
-        events.monologue('Substack session restored from cookies')
-        return client
-      }
+      await authenticateVerifiedSession(client, cookies)
+      events.monologue('Substack session restored from cookies')
+      return client
     } catch {
       events.monologue('Saved Substack cookies invalid, re-authenticating...')
     }
@@ -607,7 +738,7 @@ export async function initSubstackClient(
     try {
       const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
       events.monologue(`Logged into Substack as ${email}`)
-      await client.authenticate({ cookies })
+      await authenticateVerifiedSession(client, cookies)
       return client
     } catch (error) {
       events.monologue(`Browser-based Substack login failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -615,7 +746,7 @@ export async function initSubstackClient(
       try {
         const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
         events.monologue(`Logged into Substack as ${email}`)
-        await client.authenticate({ cookies })
+        await authenticateVerifiedSession(client, cookies)
         return client
       } catch (fallbackError) {
         throw new Error(
@@ -629,7 +760,7 @@ export async function initSubstackClient(
   events.monologue('Logging into Substack via API (direct, no browser)...')
   const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
   events.monologue(`Logged into Substack as ${email}`)
-  await client.authenticate({ cookies })
+  await authenticateVerifiedSession(client, cookies)
   return client
 }
 
@@ -657,18 +788,18 @@ export async function refreshSession(
     if (browser) {
       try {
         const { cookies, email } = await loginViaBrowser(privateKey, browser, cookiesPath, events)
-        await client.authenticate({ cookies })
+        await authenticateVerifiedSession(client, cookies)
         events.monologue(`Re-authenticated as ${email}`)
       } catch (error) {
         events.monologue(`Browser re-authentication failed: ${error instanceof Error ? error.message : String(error)}`)
         events.monologue('Falling back to direct Substack API re-authentication...')
         const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
-        await client.authenticate({ cookies })
+        await authenticateVerifiedSession(client, cookies)
         events.monologue(`Re-authenticated as ${email}`)
       }
     } else {
       const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
-      await client.authenticate({ cookies })
+      await authenticateVerifiedSession(client, cookies)
       events.monologue(`Re-authenticated as ${email}`)
     }
     return true
@@ -688,9 +819,9 @@ export async function refreshSession(
 export async function setupPublication(
   client: SubstackClient,
   identity: AgentIdentity,
+  config: Config,
   events: EventBus,
   browser?: BrowserLike,
-  model: string = 'claude-haiku-4-5-20251001',
 ): Promise<void> {
   events.monologue('Checking publication setup...')
 
@@ -792,8 +923,8 @@ export async function setupPublication(
 
   await generateTrackedText({
     operation: 'publication_setup',
-    modelId: model,
-    model: gateway(model),
+    modelId: config.modelId('editing'),
+    model: config.model('editing'),
     system: `${persona}
 
 <publication_setup_task>
