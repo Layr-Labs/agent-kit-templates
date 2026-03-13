@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "arxiv-reader",
+  "version": "1.0.0",
+  "description": "Search and read full papers from ArXiv — HTML extraction + PDF text",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_arxiv", "description": "Search ArXiv for papers by query and category" },
+    { "name": "get_paper_metadata", "description": "Get metadata (title, authors, abstract) for an ArXiv paper" },
+    { "name": "read_paper", "description": "Read the full text of an ArXiv paper (HTML version)" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_arxiv", "get_paper_metadata", "read_paper"]
+  },
+  "enabled": true
+}

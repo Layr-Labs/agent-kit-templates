@@ -1,0 +1,69 @@
+[models]
+scoring = "anthropic/claude-haiku-4.5"
+ideation = "anthropic/claude-opus-4.6"
+generation = "google/gemini-3-pro-image"
+caption = "anthropic/claude-haiku-4.5"
+editing = "anthropic/claude-sonnet-4.6"
+writing = "anthropic/claude-sonnet-4.6"
+engagement = "anthropic/claude-haiku-4.5"
+monologue = "anthropic/claude-haiku-4.5"
+reflection = "anthropic/claude-sonnet-4.6"
+compilation = "anthropic/claude-sonnet-4.6"
+
+[models.overrides]
+flagship_ideation = "anthropic/claude-opus-4.6"
+
+[agent]
+tick_interval_ms = 30000
+flagship_interval_ms = 21600000
+quickhit_cooldown_ms = 3600000
+engagement_interval_ms = 300000
+reflection_interval_ms = 604800000
+max_caption_length = 100
+recent_topic_window_ms = 86400000
+
+[agent.posting]
+min_cooldown_ms = 2700000
+max_cooldown_ms = 3600000
+growth_factor = 1.5
+
+[agent.test_mode]
+tick_interval_ms = 10000
+flagship_interval_ms = 30000
+quickhit_cooldown_ms = 15000
+engagement_interval_ms = 60000
+reflection_interval_ms = 300000
+min_cooldown_ms = 300000
+max_cooldown_ms = 300000
+
+[image]
+variants = 3
+max_retries = 3
+
+[image.test_mode]
+variants = 1
+max_retries = 1
+
+[cache]
+topic_eval_ttl_ms = 3600000
+engagement_eval_ttl_ms = 1800000
+image_prompt_ttl_ms = 86400000
+llm_response_ttl_ms = 3600000
+max_entries = 1000
+
+[cache.test_mode]
+topic_eval_ttl_ms = 60000
+engagement_eval_ttl_ms = 60000
+image_prompt_ttl_ms = 60000
+llm_response_ttl_ms = 60000
+
+[r2]
+enabled = false
+
+[scan]
+news_ttl_ms = 900000
+timeline_ttl_ms = 120000
+
+[scan.test_mode]
+news_ttl_ms = 60000
+timeline_ttl_ms = 30000
