@@ -21,6 +21,7 @@ Write the three files, pick a platform adapter (Twitter, Substack, etc.), and de
 ## Runtime Notes
 
 - `media-agent/` uses AI Gateway only. Set `AI_GATEWAY_API_KEY` before running or deploying.
+- All LLM calls now use an explicit retry budget; override it with `AI_INFERENCE_MAX_RETRIES` if needed.
 - Model IDs in `media-agent/config.toml` should use AI Gateway's `provider/model` format, for example `anthropic/claude-sonnet-4.6`.
 
 ## License

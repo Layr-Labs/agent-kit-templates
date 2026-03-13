@@ -169,16 +169,22 @@ export function getCostTracker(): CostTracker | null {
 
 export async function generateTrackedText(
   options: Record<string, unknown> & { operation: string; modelId?: string },
+  runGenerateText: typeof generateText = generateText,
 ): Promise<any> {
   const { operation, modelId, ...generateOptions } = options
   const startedAt = Date.now()
   const providerOptions = withOpenAIStrictSchemaDisabled(
-    generateOptions.providerOptions as Record<string, unknown> | undefined,
+    stripGatewayIncompatibleProviderOptions(
+      modelId,
+      generateOptions.providerOptions as Record<string, unknown> | undefined,
+    ),
   )
+  const maxRetries = resolveInferenceMaxRetries()
 
   try {
-    const result = await generateText({
+    const result = await runGenerateText({
       ...generateOptions,
+      maxRetries,
       providerOptions,
     } as any)
     await tracker?.record(buildCostRecord({
@@ -281,4 +287,44 @@ function withOpenAIStrictSchemaDisabled(
       strictJsonSchema: false,
     },
   }
+}
+
+function stripGatewayIncompatibleProviderOptions(
+  modelId: string | undefined,
+  providerOptions?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!providerOptions || !looksLikeGatewayModelId(modelId)) {
+    return providerOptions
+  }
+
+  const anthropicOptions = providerOptions.anthropic as Record<string, unknown> | undefined
+  if (!anthropicOptions || (!('cacheControl' in anthropicOptions) && !('cache_control' in anthropicOptions))) {
+    return providerOptions
+  }
+
+  // Gateway fallbacks may route an Anthropic model ID to non-Anthropic providers
+  // (for example Vertex or Bedrock), and Anthropic prompt-caching metadata causes
+  // those providers to reject the request as an invalid payload.
+  const nextAnthropicOptions = { ...anthropicOptions }
+  delete nextAnthropicOptions.cacheControl
+  delete nextAnthropicOptions.cache_control
+
+  const nextProviderOptions: Record<string, unknown> = { ...providerOptions }
+  if (Object.keys(nextAnthropicOptions).length > 0) {
+    nextProviderOptions.anthropic = nextAnthropicOptions
+  } else {
+    delete nextProviderOptions.anthropic
+  }
+
+  return nextProviderOptions
+}
+
+function looksLikeGatewayModelId(modelId?: string): boolean {
+  return typeof modelId === 'string' && /^[a-z0-9-]+\/[a-z0-9][^/\s]*$/i.test(modelId)
+}
+
+function resolveInferenceMaxRetries(): number {
+  const raw = Number(process.env.AI_INFERENCE_MAX_RETRIES ?? 2)
+  if (!Number.isFinite(raw) || raw < 0) return 2
+  return Math.floor(raw)
 }

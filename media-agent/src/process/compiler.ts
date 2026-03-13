@@ -59,6 +59,7 @@ export class AgentCompiler {
   constructor(
     private config: Config,
     dataDir: string,
+    private runInference: typeof generateTrackedText = generateTrackedText,
   ) {
     this.store = new JsonStore(`${dataDir}/compiled-agent.json`)
   }
@@ -84,7 +85,7 @@ export class AgentCompiler {
 
     console.log('Compiling agent identity from SOUL.md + constitution.md...')
 
-    const { output: object } = await generateTrackedText({
+    const { output: object } = await this.runInference({
       operation: 'compile_agent',
       modelId: this.config.modelId('compilation'),
       model: this.config.model('compilation'),
