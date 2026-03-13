@@ -180,6 +180,6 @@ echo "Files: $(ls -la SOUL.md PROCESS.toml constitution.md 2>&1)"
 echo "Main exists: $(ls -la src/main.ts 2>&1)"
 
 # Only Chrome is proxied (via --proxy-server flag above).
-# Bun/Node API calls (AI Gateway, EigenMail, etc.) go direct —
+# Bun/Node API calls (LLM proxy, EigenMail, etc.) go direct —
 # they don't need residential IPs and bun doesn't support SOCKS5 fetch.
 exec bun src/main.ts 2>&1
