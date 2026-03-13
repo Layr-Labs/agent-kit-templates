@@ -1,0 +1,45 @@
+EigenCloud Agent Kit License
+
+Copyright (c) 2026 Eigen Labs, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, and create derivative works of the Software, subject to the
+following conditions:
+
+1. EigenCloud Deployment Requirement. The Software, and any derivative works
+thereof, may only be deployed or used in production environments through
+EigenCloud services, including EigenCompute and the EigenCloud Agent Kit
+Services, subject to the applicable EigenCloud terms of service. Any
+deployment or production operation of the Software outside of EigenCloud
+services is strictly prohibited without prior written permission from Eigen
+Labs, Inc. For clarity, local development, testing, and evaluation use is
+permitted so long as it is not deployed or used in production outside
+EigenCloud services. For purposes of this license, "EigenCloud services" means
+the services offered by Eigen Labs, Inc. under the EigenCloud platform as
+defined in the applicable EigenCloud terms of service, as updated from time to
+time.
+
+2. Competitive Hosted Service Restriction. The Software may not be used to
+provide a hosted service, platform, or product that competes with EigenCloud
+or any EigenCloud services without prior written permission from Eigen Labs,
+Inc.
+
+3. Attribution. All copies or substantial portions of the Software must
+include this license and the above copyright notice.
+
+4. No Sublicensing. You may not sublicense the Software or grant any third
+party rights to use the Software outside the scope of this license.
+
+5. No Trademark License. This license does not grant any right to use the
+name, trademarks, or logos of Eigen Labs, Inc., including "EigenCloud,"
+"EigenCompute," or "AgentKit," except as required for reasonable attribution
+under Section 3.
+
+6. Termination. Your rights under this license terminate automatically if you
+breach any condition of this license. Sections 2, 3, 5, and the warranty
+disclaimer survive termination.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL EIGEN LABS, INC. BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY ARISING FROM USE OF THE SOFTWARE.

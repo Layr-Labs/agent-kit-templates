@@ -22,3 +22,7 @@ Write the three files, pick a platform adapter (Twitter, Substack, etc.), and de
 
 - `media-agent/` uses AI Gateway only. Set `AI_GATEWAY_API_KEY` before running or deploying.
 - Model IDs in `media-agent/config.toml` should use AI Gateway's `provider/model` format, for example `anthropic/claude-sonnet-4.6`.
+
+## License
+
+See [LICENSE](./LICENSE) for details.
