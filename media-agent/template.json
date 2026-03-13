@@ -16,12 +16,14 @@
       "label": "Twitter/X",
       "description": "Visual posts, threads, engagement",
       "envVars": [
-        { "key": "TWITTER_EMAIL", "label": "Twitter email", "required": true },
-        { "key": "TWITTER_USER", "label": "Twitter username (without @)", "required": true },
-        { "key": "TWITTER_PASS", "label": "Twitter password", "required": true, "secret": true },
-        { "key": "TWITTER_TOTP_KEY", "label": "2FA TOTP secret", "required": false, "secret": true }
+        { "key": "TWITTER_USERNAME", "label": "Twitter username (without @)", "required": true },
+        { "key": "TWITTER_BEARER_TOKEN", "label": "Bearer Token", "required": true, "secret": true },
+        { "key": "TWITTER_API_KEY", "label": "API Key (Consumer Key)", "required": true, "secret": true },
+        { "key": "TWITTER_API_SECRET", "label": "API Key Secret (Consumer Secret)", "required": true, "secret": true },
+        { "key": "TWITTER_ACCESS_TOKEN", "label": "Access Token", "required": true, "secret": true },
+        { "key": "TWITTER_ACCESS_SECRET", "label": "Access Token Secret", "required": true, "secret": true }
       ],
-      "autoVars": { "TWITTER_POSTING_ENABLED": "true", "TWITTER_USERNAME": "$TWITTER_USER" }
+      "autoVars": { "TWITTER_POSTING_ENABLED": "true" }
     },
     {
       "id": "substack",
