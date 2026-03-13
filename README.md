@@ -20,9 +20,11 @@ Write the three files, pick a platform adapter (Twitter, Substack, etc.), and de
 
 ## Runtime Notes
 
-- `media-agent/` uses AI Gateway only. Set `AI_GATEWAY_API_KEY` before running or deploying.
+- `media-agent/` routes model traffic through an AI Gateway-compatible proxy using `createGateway` from `ai`.
+- Set `LLM_PROXY_URL` or `EIGEN_GATEWAY_URL` before running or deploying.
+- Set `LLM_PROXY_API_KEY` for bearer auth, or use `KMS_AUTH_JWT` if that is the bearer token your proxy expects.
 - All LLM calls now use an explicit retry budget; override it with `AI_INFERENCE_MAX_RETRIES` if needed.
-- Model IDs in `media-agent/config.toml` should use AI Gateway's `provider/model` format, for example `anthropic/claude-sonnet-4.6`.
+- Model IDs in `media-agent/config.toml` should keep the `provider/model` format, for example `anthropic/claude-sonnet-4.6`.
 
 ## License
 

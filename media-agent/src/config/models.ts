@@ -1,4 +1,4 @@
-import { gateway } from 'ai'
+import { createGateway } from 'ai'
 
 export type ModelTask =
   | 'scoring'
@@ -13,10 +13,15 @@ export type ModelTask =
   | 'compilation'
 
 const agentModelOverride = process.env.AGENT_MODEL?.trim()
+let gatewayProvider: ReturnType<typeof createGateway> | null = null
 
-export function assertAiGatewayConfigured(): void {
-  if (!process.env.AI_GATEWAY_API_KEY) {
-    throw new Error('AI_GATEWAY_API_KEY is required. Direct provider fallback has been removed.')
+export function assertModelProviderConfigured(): void {
+  if (!resolveProxyBaseURL()) {
+    throw new Error('LLM_PROXY_URL or EIGEN_GATEWAY_URL is required.')
+  }
+
+  if (!resolveProxyApiKey()) {
+    throw new Error('LLM_PROXY_API_KEY or KMS_AUTH_JWT is required.')
   }
 }
 
@@ -34,8 +39,8 @@ export function resolveModel(
     throw new Error(`No model configured for task: ${task}`)
   }
 
-  assertAiGatewayConfigured()
-  return gateway(modelId)
+  assertModelProviderConfigured()
+  return getGatewayProvider()(modelId)
 }
 
 export function resolveModelId(
@@ -54,4 +59,30 @@ function resolveRuntimeModelOverride(task: ModelTask): string | undefined {
   if (!agentModelOverride) return undefined
   if (task === 'generation') return undefined
   return agentModelOverride
+}
+
+export function getGatewayProvider(): ReturnType<typeof createGateway> {
+  const baseURL = resolveProxyBaseURL()
+  const apiKey = resolveProxyApiKey()
+
+  if (!baseURL || !apiKey) {
+    throw new Error('Proxy provider is not configured.')
+  }
+
+  if (!gatewayProvider) {
+    gatewayProvider = createGateway({
+      baseURL,
+      apiKey,
+    })
+  }
+
+  return gatewayProvider
+}
+
+function resolveProxyBaseURL(): string | undefined {
+  return process.env.LLM_PROXY_URL?.trim() || process.env.EIGEN_GATEWAY_URL?.trim()
+}
+
+function resolveProxyApiKey(): string | undefined {
+  return process.env.LLM_PROXY_API_KEY?.trim() || process.env.KMS_AUTH_JWT?.trim()
 }
