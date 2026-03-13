@@ -1,0 +1,94 @@
+import { tool } from 'ai'
+import { z } from 'zod'
+import type { Skill, SkillContext } from '../../../../src/skills/types.js'
+
+function extract(xml: string, tag: string): string {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
+  return match ? match[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').replace(/\\s+/g, ' ').trim() : ''
+}
+
+function parseEntries(xml: string): Array<{
+  arxivId: string
+  title: string
+  abstract: string
+  published: string
+  url: string
+}> {
+  const matches = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)]
+  return matches.map((match) => {
+    const entry = match[1]
+    const id = extract(entry, 'id')
+      .replace('http://arxiv.org/abs/', '')
+      .replace('https://arxiv.org/abs/', '')
+
+    return {
+      arxivId: id,
+      title: extract(entry, 'title'),
+      abstract: extract(entry, 'summary'),
+      published: extract(entry, 'published'),
+      url: `https://arxiv.org/abs/${id}`,
+    }
+  })
+}
+
+const skill: Skill = {
+  name: 'arxiv-skill',
+  description: 'Fetch arXiv paper metadata and abstracts',
+  category: 'agent',
+
+  async init(_ctx: SkillContext) {
+    return {
+      read_arxiv_paper: tool({
+        description: 'Fetch arXiv paper metadata and abstract by arXiv id',
+        inputSchema: z.object({
+          arxiv_id: z.string(),
+        }),
+        execute: async ({ arxiv_id }) => {
+          const cleanId = arxiv_id.replace(/^arxiv:/i, '').trim()
+          const response = await fetch(
+            `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(cleanId)}`,
+            { headers: { 'user-agent': 'media-agent-arxiv-skill/1.0' } },
+          )
+
+          if (!response.ok) {
+            return { found: false, error: `HTTP ${response.status}` }
+          }
+
+          const xml = await response.text()
+          const entry = parseEntries(xml)[0]
+          if (!entry) {
+            return { found: false, error: `No entry returned for ${cleanId}` }
+          }
+
+          return { found: true, ...entry }
+        },
+      }),
+
+      search_arxiv: tool({
+        description: 'Search arXiv for papers by query string',
+        inputSchema: z.object({
+          query: z.string(),
+          limit: z.number().default(5),
+        }),
+        execute: async ({ query, limit }) => {
+          const response = await fetch(
+            'https://export.arxiv.org/api/query?search_query='
+              + encodeURIComponent(`all:${query}`)
+              + '&start=0&max_results='
+              + encodeURIComponent(String(limit)),
+            { headers: { 'user-agent': 'media-agent-arxiv-skill/1.0' } },
+          )
+
+          if (!response.ok) {
+            return { results: [], error: `HTTP ${response.status}` }
+          }
+
+          const xml = await response.text()
+          return { results: parseEntries(xml).slice(0, limit) }
+        },
+      }),
+    }
+  },
+}
+
+export default skill
