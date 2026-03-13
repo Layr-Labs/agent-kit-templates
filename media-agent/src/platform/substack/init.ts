@@ -13,13 +13,16 @@ import { generateTrackedText } from '../../ai/tracking.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
 import {
+  collectRegexOtpCandidates,
   extractSubstackOtpCandidates,
+  findOtpCodesInText,
   maskOtpCode,
   type OtpCandidate,
 } from './otp.js'
 
 const SUBSTACK_BASE = 'https://substack.com'
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
 
 export interface CdpBrowserTarget {
   type?: string
@@ -56,6 +59,70 @@ interface LoginCompletionResult {
     title?: string
     readyState?: string
   }
+}
+
+function isSubstackLoginDebugEnabled(): boolean {
+  const raw = process.env.SUBSTACK_LOGIN_DEBUG?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function logSubstackLoginDebug(events: EventBus, message: string): void {
+  if (!isSubstackLoginDebugEnabled()) return
+  events.monologue(`[substack-debug] ${message}`)
+}
+
+function redactOtpLikeText(value: string | undefined, maxLength = 120): string {
+  if (!value) return 'none'
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return 'empty'
+  const redacted = compact.replace(OTP_DEBUG_CODE_REGEX, (match) => maskOtpCode(match))
+  return redacted.length <= maxLength ? redacted : `${redacted.slice(0, maxLength)}...`
+}
+
+function summarizeInboxMessageForDebug(message: Record<string, unknown>): string {
+  return [
+    `id=${String(message.id ?? '').slice(0, 8) || 'none'}`,
+    `date=${redactOtpLikeText(typeof message.date === 'string' ? message.date : undefined, 48)}`,
+    `from=${redactOtpLikeText(typeof message.from === 'string' ? message.from : undefined, 80)}`,
+    `subject=${redactOtpLikeText(typeof message.subject === 'string' ? message.subject : undefined, 80)}`,
+    `preview=${redactOtpLikeText(typeof message.snippet === 'string' ? message.snippet : typeof message.preview === 'string' ? message.preview : undefined, 100)}`,
+  ].join(' | ')
+}
+
+function summarizeOtpEmailForDebug(input: {
+  subject?: string
+  preview?: string
+  text?: string
+  body?: string
+  html?: string
+}): string {
+  const hintedCodes = [
+    ...findOtpCodesInText(input.subject),
+    ...findOtpCodesInText(input.preview),
+    ...findOtpCodesInText(input.text),
+    ...findOtpCodesInText(input.body),
+    ...findOtpCodesInText(input.html),
+  ]
+  const uniqueCodes = [...new Set(hintedCodes)].map(code => maskOtpCode(code))
+
+  return [
+    `subjectLen=${input.subject?.length ?? 0}`,
+    `previewLen=${input.preview?.length ?? 0}`,
+    `textLen=${input.text?.length ?? 0}`,
+    `bodyLen=${input.body?.length ?? 0}`,
+    `htmlLen=${input.html?.length ?? 0}`,
+    `codeHints=${uniqueCodes.length > 0 ? uniqueCodes.join(',') : 'none'}`,
+    input.subject ? `subject=${JSON.stringify(redactOtpLikeText(input.subject, 100))}` : '',
+    input.preview ? `preview=${JSON.stringify(redactOtpLikeText(input.preview, 100))}` : '',
+  ].filter(Boolean).join(' | ')
+}
+
+function describeDirectFallbackIssue(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes('Could not extract OTP code from email. Subject: "none"')) {
+    return 'Direct Substack API login timed out without finding any EigenMail message whose subject matched "verification code".'
+  }
+  return null
 }
 
 async function completeOtpLoginInBrowser(
@@ -571,8 +638,30 @@ async function loginViaBrowser(
             can_create_user: true,
           }),
         });
-        if (!res.ok) return JSON.stringify({ error: 'HTTP ' + res.status });
-        return JSON.stringify({ ok: true });
+        const headers = Object.fromEntries(
+          Array.from(res.headers.entries()).filter(([key]) =>
+            ['cache-control', 'content-type', 'cf-ray', 'server'].includes(key.toLowerCase())
+          ),
+        );
+        const body = await res.text().catch(() => '');
+        if (!res.ok) {
+          return JSON.stringify({
+            error: 'HTTP ' + res.status,
+            status: res.status,
+            statusText: res.statusText,
+            url: res.url,
+            headers,
+            body: body.slice(0, 300),
+          });
+        }
+        return JSON.stringify({
+          ok: true,
+          status: res.status,
+          statusText: res.statusText,
+          url: res.url,
+          headers,
+          body: body.slice(0, 300),
+        });
       } catch (e) {
         return JSON.stringify({ error: e.message });
       }
@@ -580,6 +669,19 @@ async function loginViaBrowser(
   `)
 
   const otpParsed = JSON.parse(otpResult)
+  logSubstackLoginDebug(
+    events,
+    [
+      'Browser OTP request result',
+      `ok=${otpParsed.ok ? 'true' : 'false'}`,
+      `status=${otpParsed.status ?? 'unknown'}`,
+      otpParsed.statusText ? `statusText=${otpParsed.statusText}` : '',
+      otpParsed.url ? `url=${otpParsed.url}` : '',
+      otpParsed.headers ? `headers=${JSON.stringify(otpParsed.headers)}` : '',
+      otpParsed.body ? `body=${JSON.stringify(redactOtpLikeText(String(otpParsed.body), 180))}` : '',
+      otpParsed.error ? `error=${otpParsed.error}` : '',
+    ].filter(Boolean).join(' | '),
+  )
   if (otpParsed.error) {
     throw new Error(`email-login failed: ${otpParsed.error}`)
   }
@@ -588,35 +690,42 @@ async function loginViaBrowser(
   events.monologue(`Waiting for OTP email... (${preExistingIds.size} pre-existing messages to skip)`)
 
   let otpCandidates: OtpCandidate[] = []
+  let lastInboxSummary = 'no inbox poll completed'
+  const inspectedMessageIds = new Set<string>()
   for (let attempt = 0; attempt < 40; attempt++) {
     await new Promise(r => setTimeout(r, 3000))
 
     try {
       const inbox: any = await mail.inbox({ limit: 10 })
       const messages = inbox?.messages ?? []
+      const newMessages = messages.filter((message: any) => !preExistingIds.has(message.id))
+      const pendingMessages = newMessages.filter((message: any) => !inspectedMessageIds.has(String(message.id ?? '')))
+      lastInboxSummary = `attempt=${attempt + 1}/40 | inbox=${messages.length} | new=${newMessages.length} | pending=${pendingMessages.length} | inspected=${inspectedMessageIds.size}`
+      logSubstackLoginDebug(events, `OTP inbox poll | ${lastInboxSummary}`)
 
-      for (const msg of messages) {
-        // Skip messages that existed before we requested the OTP
-        if (preExistingIds.has(msg.id)) continue
-
-        // Check if it's from Substack
-        const from = String(msg.from ?? '').toLowerCase()
-        const subject = String(msg.subject ?? '').toLowerCase()
-        if (!from.includes('substack') && !subject.includes('substack') && !subject.includes('verification')) continue
-
+      for (const msg of pendingMessages) {
+        const messageId = String(msg.id ?? '')
+        if (messageId) inspectedMessageIds.add(messageId)
         try {
           const full: any = await mail.read(msg.id)
-          otpCandidates = await extractSubstackOtpCandidates({
+          const otpEmail = {
             messageId: String(full?.id ?? msg.id ?? ''),
             from: String(full?.from ?? msg.from ?? ''),
             subject: String(full?.subject ?? msg.subject ?? ''),
-            preview: String(full?.preview ?? msg.preview ?? ''),
+            preview: String(full?.snippet ?? full?.preview ?? msg.snippet ?? msg.preview ?? ''),
+            text: String(full?.text ?? full?.body ?? ''),
             body: String(full?.body ?? full?.text ?? ''),
             html: String(full?.html ?? ''),
-          }, events)
+          }
+          logSubstackLoginDebug(
+            events,
+            `Inspecting inbox message | ${summarizeInboxMessageForDebug(full ?? msg)} | ${summarizeOtpEmailForDebug(otpEmail)} | regexCandidates=${collectRegexOtpCandidates(otpEmail).length}`,
+          )
+          otpCandidates = await extractSubstackOtpCandidates(otpEmail, events)
           if (otpCandidates.length > 0) {
             break
           }
+          logSubstackLoginDebug(events, `No OTP candidates extracted from message | ${summarizeInboxMessageForDebug(full ?? msg)}`)
         } catch (error) {
           events.monologue(`Failed to inspect OTP email ${String(msg.id ?? '').slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`)
         }
@@ -629,6 +738,7 @@ async function loginViaBrowser(
   }
 
   if (otpCandidates.length === 0) {
+    logSubstackLoginDebug(events, `OTP polling exhausted without a usable code | ${lastInboxSummary}`)
     throw new Error('Could not find Substack OTP code in inbox after 2 minutes.')
   }
 
@@ -749,6 +859,10 @@ export async function initSubstackClient(
         await authenticateVerifiedSession(client, cookies)
         return client
       } catch (fallbackError) {
+        const fallbackHint = describeDirectFallbackIssue(fallbackError)
+        if (fallbackHint) {
+          events.monologue(fallbackHint)
+        }
         throw new Error(
           `Substack login failed. Browser flow: ${error instanceof Error ? error.message : String(error)}. Direct fallback: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
         )
@@ -793,9 +907,17 @@ export async function refreshSession(
       } catch (error) {
         events.monologue(`Browser re-authentication failed: ${error instanceof Error ? error.message : String(error)}`)
         events.monologue('Falling back to direct Substack API re-authentication...')
-        const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
-        await authenticateVerifiedSession(client, cookies)
-        events.monologue(`Re-authenticated as ${email}`)
+        try {
+          const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
+          await authenticateVerifiedSession(client, cookies)
+          events.monologue(`Re-authenticated as ${email}`)
+        } catch (fallbackError) {
+          const fallbackHint = describeDirectFallbackIssue(fallbackError)
+          if (fallbackHint) {
+            events.monologue(fallbackHint)
+          }
+          throw fallbackError
+        }
       }
     } else {
       const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)

@@ -88,10 +88,15 @@ CHROME_ARGS=(
     --no-sandbox
     --disable-dev-shm-usage
     --disable-gpu
+    --disable-background-networking
+    --disable-component-update
+    --disable-component-extensions-with-background-pages
+    --disable-features=OptimizationGuideOnDeviceModel
     --no-first-run
     --no-default-browser-check
     --disable-blink-features=AutomationControlled
     --lang=en-US
+    --log-level=3
     --window-size=1920,1080
     --remote-debugging-port=9222
     --user-data-dir=${PROFILE_DIR}
@@ -101,7 +106,9 @@ if [ "$PROXY_ACTIVE" = "1" ]; then
     CHROME_ARGS+=(--proxy-server="socks5://127.0.0.1:1080")
 fi
 
-google-chrome-stable "${CHROME_ARGS[@]}" about:blank &
+CHROME_LOG_PATH="${CHROME_LOG_PATH:-/tmp/chrome.log}"
+touch "$CHROME_LOG_PATH"
+google-chrome-stable "${CHROME_ARGS[@]}" about:blank >>"$CHROME_LOG_PATH" 2>&1 &
 
 echo "Waiting for Chrome..."
 for i in $(seq 1 30); do

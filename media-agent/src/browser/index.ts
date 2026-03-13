@@ -51,9 +51,14 @@ function launchChrome(): void {
   const args = [
     `--remote-debugging-port=${CDP_PORT}`,
     `--user-data-dir=${profileDir}`,
+    '--disable-background-networking',
+    '--disable-component-update',
+    '--disable-component-extensions-with-background-pages',
+    '--disable-features=OptimizationGuideOnDeviceModel',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',
+    '--log-level=3',
     '--window-size=1920,1080',
     ...(isDocker ? ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
   ]

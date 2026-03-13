@@ -9,13 +9,17 @@ describe('substack OTP helpers', () => {
   it('extracts unique regex OTP candidates in source priority order', () => {
     const candidates = collectRegexOtpCandidates({
       subject: 'Your Substack verification code is 123456',
+      preview: 'Inbox snippet says 222222',
+      text: 'Plain text includes 333333',
       body: 'Use 123456 to log in. Backup code 654321 is stale.',
       html: '<div>654321</div><div>777777</div>',
     })
 
-    expect(candidates.map(candidate => candidate.code)).toEqual(['123456', '654321', '777777'])
+    expect(candidates.map(candidate => candidate.code)).toEqual(['123456', '222222', '333333', '654321', '777777'])
     expect(candidates.map(candidate => candidate.source)).toEqual([
       'regex-subject',
+      'regex-preview',
+      'regex-text',
       'regex-body',
       'regex-html',
     ])

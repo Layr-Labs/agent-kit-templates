@@ -4,6 +4,7 @@ import { generateTrackedText } from '../../ai/tracking.js'
 import type { EventBus } from '../../console/events.js'
 
 const DEFAULT_OTP_EXTRACTION_MODEL = 'anthropic/claude-sonnet-4.6'
+const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
 
 const llmOtpCandidateSchema = z.object({
   code: z.string().regex(/^\d{6}$/),
@@ -23,6 +24,7 @@ export interface OtpEmailInput {
   from?: string
   subject?: string
   preview?: string
+  text?: string
   body?: string
   html?: string
 }
@@ -38,6 +40,24 @@ export function maskOtpCode(code: string): string {
   return code.length === 6 ? `${code.slice(0, 3)}***` : '***'
 }
 
+function isSubstackLoginDebugEnabled(): boolean {
+  const raw = process.env.SUBSTACK_LOGIN_DEBUG?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function logOtpDebug(events: EventBus, message: string): void {
+  if (!isSubstackLoginDebugEnabled()) return
+  events.monologue(`[substack-debug] ${message}`)
+}
+
+function redactOtpLikeText(value: string | undefined, maxLength = 120): string {
+  if (!value) return ''
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (!compact) return ''
+  const redacted = compact.replace(OTP_DEBUG_CODE_REGEX, (match) => maskOtpCode(match))
+  return redacted.length <= maxLength ? redacted : `${redacted.slice(0, maxLength)}...`
+}
+
 export function describeOtpCandidates(candidates: OtpCandidate[]): string {
   return candidates
     .map((candidate) => {
@@ -49,13 +69,18 @@ export function describeOtpCandidates(candidates: OtpCandidate[]): string {
     .join(', ')
 }
 
+export function findOtpCodesInText(text: string | undefined): string[] {
+  if (!text) return []
+  return text.match(/\b\d{6}\b/g) ?? []
+}
+
 export function collectRegexOtpCandidates(input: OtpEmailInput): OtpCandidate[] {
   const ordered: OtpCandidate[] = []
   const seen = new Set<string>()
 
   const pushMatches = (text: string | undefined, source: string, reason: string) => {
     if (!text) return
-    const matches = text.match(/\b\d{6}\b/g) ?? []
+    const matches = findOtpCodesInText(text)
     for (const code of matches) {
       if (seen.has(code)) continue
       seen.add(code)
@@ -64,6 +89,8 @@ export function collectRegexOtpCandidates(input: OtpEmailInput): OtpCandidate[] 
   }
 
   pushMatches(input.subject, 'regex-subject', 'Regex match in the subject line.')
+  pushMatches(input.preview, 'regex-preview', 'Regex match in the inbox preview/snippet.')
+  pushMatches(input.text, 'regex-text', 'Regex match in the plain-text message.')
   pushMatches(input.body, 'regex-body', 'Regex match in the plain-text body.')
   pushMatches(input.html, 'regex-html', 'Regex match in the HTML body.')
 
@@ -109,17 +136,36 @@ export async function extractSubstackOtpCandidates(
   events: EventBus,
 ): Promise<OtpCandidate[]> {
   const regexCandidates = collectRegexOtpCandidates(input)
-  const hasContent = [input.subject, input.preview, input.body, input.html].some(
+  const hasContent = [input.subject, input.preview, input.text, input.body, input.html].some(
     value => value && value.trim().length > 0,
   )
 
   if (!hasContent) {
+    logOtpDebug(
+      events,
+      `OTP extractor received empty message payload | subjectLen=${input.subject?.length ?? 0} | previewLen=${input.preview?.length ?? 0} | textLen=${input.text?.length ?? 0} | bodyLen=${input.body?.length ?? 0} | htmlLen=${input.html?.length ?? 0} | regexCandidates=${regexCandidates.length}`,
+    )
     return regexCandidates
   }
 
   const modelId = process.env.SUBSTACK_OTP_MODEL?.trim()
     || process.env.AGENT_MODEL?.trim()
     || DEFAULT_OTP_EXTRACTION_MODEL
+
+  logOtpDebug(
+    events,
+    [
+      `OTP extractor input | model=${modelId}`,
+      `subjectLen=${input.subject?.length ?? 0}`,
+      `previewLen=${input.preview?.length ?? 0}`,
+      `textLen=${input.text?.length ?? 0}`,
+      `bodyLen=${input.body?.length ?? 0}`,
+      `htmlLen=${input.html?.length ?? 0}`,
+      `regexCandidates=${regexCandidates.length}`,
+      input.subject ? `subject=${JSON.stringify(redactOtpLikeText(input.subject, 100))}` : '',
+      input.preview ? `preview=${JSON.stringify(redactOtpLikeText(input.preview, 100))}` : '',
+    ].filter(Boolean).join(' | '),
+  )
 
   try {
     const { output } = await generateTrackedText({
@@ -139,6 +185,7 @@ export async function extractSubstackOtpCandidates(
         `<from>${trimForPrompt(input.from)}</from>`,
         `<subject>${trimForPrompt(input.subject)}</subject>`,
         `<preview>${trimForPrompt(input.preview)}</preview>`,
+        `<text>${trimForPrompt(input.text, 8000)}</text>`,
         `<body>${trimForPrompt(input.body, 8000)}</body>`,
         `<html>${trimForPrompt(input.html, 8000)}</html>`,
       ].join('\n\n'),
@@ -163,6 +210,8 @@ export async function extractSubstackOtpCandidates(
 
     if (candidates.length > 0) {
       events.monologue(`OTP candidates prepared: ${describeOtpCandidates(candidates)}`)
+    } else {
+      logOtpDebug(events, `OTP extractor returned no candidates | regexCandidates=${regexCandidates.length}`)
     }
 
     return candidates
