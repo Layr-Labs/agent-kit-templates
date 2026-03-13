@@ -256,6 +256,7 @@ const skill: Skill = {
           trackPost(ctx, {
             platformId: post.slug ?? String(post.id),
             text: post.title ?? '',
+            summary: post.subtitle ?? post.description ?? undefined,
             type: 'article',
             articleUrl: post.canonical_url,
           })

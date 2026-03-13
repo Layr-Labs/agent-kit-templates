@@ -4,6 +4,7 @@ export const SCHEMA = `
     platform_id TEXT NOT NULL,
     content_id TEXT,
     text TEXT NOT NULL,
+    summary TEXT,
     image_url TEXT,
     video_url TEXT,
     article_url TEXT,

@@ -33,6 +33,7 @@ export function createPipelineState(db?: any): PipelineState {
         platformId: r.platform_id,
         contentId: r.content_id,
         text: r.text,
+        summary: r.summary,
         imageUrl: r.image_url,
         videoUrl: r.video_url,
         articleUrl: r.article_url,

@@ -80,6 +80,7 @@ export interface Post {
   platformId: string
   contentId?: string
   text: string
+  summary?: string
   imageUrl?: string
   videoUrl?: string
   articleUrl?: string

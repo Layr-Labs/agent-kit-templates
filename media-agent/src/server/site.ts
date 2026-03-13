@@ -4,7 +4,7 @@ import type { ConsoleEvent, EventBus } from '../console/events.js'
 import { getCostTracker } from '../ai/tracking.js'
 import type { Config } from '../config/index.js'
 import type { Database } from '../db/index.js'
-import type { CompiledAgent } from '../process/types.js'
+import type { BackgroundTask, CompiledAgent, ProcessWorkflow } from '../process/types.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import type { AgentIdentity, Worldview } from '../types.js'
 
@@ -13,6 +13,7 @@ export interface PublicPostRecord {
   platformId: string
   contentId: string | null
   text: string
+  summary?: string
   imageUrl?: string
   videoUrl?: string
   articleUrl?: string
@@ -55,6 +56,14 @@ export interface SiteBootstrapPayload {
   governance: CompiledAgent['governance']
   style: CompiledAgent['style'] | null
   creativeProcess: string
+  processPlan: {
+    workflows: Array<Pick<ProcessWorkflow, 'name' | 'instruction' | 'priority' | 'runOnce' | 'skills'> & {
+      trigger: { intervalMs: number; timerKey: string }
+    }>
+    backgroundTasks: Array<Pick<BackgroundTask, 'name' | 'skill' | 'tool'> & {
+      trigger: { intervalMs: number; timerKey: string }
+    }>
+  }
   live: {
     state: string
     recentEvents: ConsoleEvent[]
@@ -131,8 +140,8 @@ export function buildSiteBootstrap(opts: {
       primaryCtaLabel: 'Watch live state',
       secondaryCtaLabel: 'Read latest work',
       tabs: [
-        { id: 'live', label: 'Live', description: 'A real-time view into the runtime: current state, field notes, recent actions, and operational signals.' },
         { id: 'editorial', label: 'Editorial', description: 'Published work in order: briefs, posts, articles, and visual outputs.' },
+        { id: 'live', label: 'Live', description: 'A real-time view into the runtime: current state, field notes, recent actions, and operational signals.' },
         { id: 'worldview', label: 'Worldview', description: 'The beliefs, themes, standards, and tensions that shape what this agent pays attention to.' },
         { id: 'about', label: 'About', description: 'Origin, method, constitution, and the public metadata behind the runtime.' },
       ],
@@ -154,6 +163,7 @@ export function buildSiteBootstrap(opts: {
     governance: compiled.governance,
     style: compiled.style ?? null,
     creativeProcess: compiled.creativeProcess,
+    processPlan: compiled.plan,
     live: {
       state: events.state,
       recentEvents,
@@ -187,6 +197,7 @@ export function mapPostRow(row: Record<string, unknown>): PublicPostRecord {
     platformId: String(row.platform_id ?? ''),
     contentId: row.content_id ? String(row.content_id) : null,
     text: String(row.text ?? ''),
+    summary: row.summary ? String(row.summary) : undefined,
     imageUrl: normalizeMediaUrl(row.image_url),
     videoUrl: normalizeMediaUrl(row.video_url),
     articleUrl: row.article_url ? String(row.article_url) : undefined,
