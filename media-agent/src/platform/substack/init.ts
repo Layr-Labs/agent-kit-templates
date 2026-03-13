@@ -147,6 +147,190 @@ async function loginViaDirectApi(
   })
 }
 
+interface BrowserFetchJsonResult<T = unknown> {
+  ok: boolean
+  status: number
+  statusText: string
+  url: string
+  contentType?: string | null
+  body: string
+  json: T | null
+  error?: string
+}
+
+async function getFreshSelf(client: SubstackClient): Promise<any> {
+  return client.refreshSelf()
+}
+
+function pickSubstackDisplayName(identity: AgentIdentity, currentName?: unknown): string {
+  const candidate = [currentName, identity.name, identity.creator]
+    .find(value => typeof value === 'string' && value.trim().length > 0)
+
+  const cleaned = String(candidate ?? 'Agent').replace(/\s+/g, ' ').trim().slice(0, 80)
+  return cleaned || 'Agent'
+}
+
+function summarizeBrowserFetchFailure(
+  label: string,
+  result: BrowserFetchJsonResult<unknown>,
+): string {
+  const parts = [label, `status=${result.status}`, `statusText=${result.statusText}`]
+
+  if (result.url) parts.push(`url=${result.url}`)
+  if (result.contentType) parts.push(`contentType=${result.contentType}`)
+  if (result.body) parts.push(`body=${JSON.stringify(result.body)}`)
+  if (result.error) parts.push(`error=${result.error}`)
+
+  return parts.join(' | ')
+}
+
+async function browserJsonRequest<T = unknown>(
+  browser: BrowserLike,
+  input: string,
+  init: {
+    method?: string
+    headers?: Record<string, string>
+    body?: unknown
+  } = {},
+): Promise<BrowserFetchJsonResult<T>> {
+  const requestConfig = {
+    method: init.method ?? 'GET',
+    headers: init.headers ?? {},
+    body: init.body === undefined ? null : JSON.stringify(init.body),
+  }
+
+  const raw = await browser.evaluate<string>(`
+    (async () => {
+      const input = ${JSON.stringify(input)};
+      const config = ${JSON.stringify(requestConfig)};
+
+      try {
+        const fetchInit = {
+          method: config.method,
+          headers: config.headers,
+          credentials: 'include',
+        };
+
+        if (config.body !== null) {
+          fetchInit.body = config.body;
+        }
+
+        const res = await fetch(input, fetchInit);
+        const text = await res.text().catch(() => '');
+        let json = null;
+
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {}
+
+        return JSON.stringify({
+          ok: res.ok,
+          status: res.status,
+          statusText: res.statusText,
+          url: res.url,
+          contentType: res.headers.get('content-type'),
+          body: text.slice(0, 1200),
+          json,
+        });
+      } catch (error) {
+        return JSON.stringify({
+          ok: false,
+          status: 0,
+          statusText: 'BROWSER_FETCH_FAILED',
+          url: input,
+          contentType: null,
+          body: '',
+          json: null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })()
+  `)
+
+  try {
+    return JSON.parse(raw) as BrowserFetchJsonResult<T>
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      statusText: 'BROWSER_FETCH_PARSE_FAILED',
+      url: input,
+      body: raw.slice(0, 1200),
+      json: null,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+async function initializePublicationViaBrowser(
+  client: SubstackClient,
+  browser: BrowserLike,
+  identity: AgentIdentity,
+  events: EventBus,
+): Promise<any> {
+  const currentSelf = await getFreshSelf(client)
+  const displayName = pickSubstackDisplayName(identity, currentSelf?.name)
+
+  events.monologue('No publication found — initializing creator dashboard via browser...')
+
+  await browser.navigate(`${SUBSTACK_BASE}/profile/start?utm_source=menu`)
+  await browser.waitMs(1500)
+
+  const profileResult = await browserJsonRequest<any>(browser, `${SUBSTACK_BASE}/api/v1/user/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: {
+      name: displayName,
+      accept_tos: true,
+    },
+  })
+
+  if (!profileResult.ok) {
+    throw new Error(summarizeBrowserFetchFailure('profile-setup', profileResult))
+  }
+
+  const handle = String(
+    profileResult.json?.handle ??
+    profileResult.json?.profile?.handle ??
+    currentSelf?.handle ??
+    '',
+  ).trim()
+
+  if (!handle) {
+    throw new Error(`Substack did not return a handle after profile setup: ${JSON.stringify(profileResult.body)}`)
+  }
+
+  events.monologue(`Substack handle ready: ${handle}`)
+
+  await browser.navigate(`${SUBSTACK_BASE}/@${handle}`)
+  await browser.waitMs(1500)
+
+  const initializeResult = await browserJsonRequest(
+    browser,
+    `${SUBSTACK_BASE}/api/v1/@${handle}/personal-initialize?action=access_dashboard`,
+    { method: 'POST' },
+  )
+
+  if (!initializeResult.ok) {
+    throw new Error(summarizeBrowserFetchFailure('personal-initialize', initializeResult))
+  }
+
+  const publishHomeUrl = `https://${handle}.substack.com/publish/home`
+  events.monologue(`Creator dashboard initialized — opening ${publishHomeUrl}`)
+  await browser.navigate(publishHomeUrl)
+  await browser.waitMs(2500)
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const refreshedSelf = await getFreshSelf(client)
+    if (refreshedSelf?.primaryPublication) {
+      return refreshedSelf
+    }
+    await browser.waitMs(1000)
+  }
+
+  throw new Error(`personal-initialize succeeded for @${handle}, but no primaryPublication appeared in the authenticated profile`)
+}
+
 /**
  * Perform the full Substack login through the browser.
  *
@@ -505,28 +689,42 @@ export async function setupPublication(
   client: SubstackClient,
   identity: AgentIdentity,
   events: EventBus,
+  browser?: BrowserLike,
   model: string = 'claude-haiku-4-5-20251001',
 ): Promise<void> {
   events.monologue('Checking publication setup...')
 
-  let self = await client.getSelf()
+  let self = await getFreshSelf(client)
 
   // If no publication exists, create one
   if (!self.primaryPublication) {
-    events.monologue('No publication found — creating one...')
+    const publicationName = pickSubstackDisplayName(identity, self?.name)
+    let ensurePublicationError: Error | null = null
+    let browserInitError: Error | null = null
+
     try {
-      // Accept publisher agreement — may fail if email domain is blocked, but try anyway
-      try { await client.acceptPublisherAgreement() } catch (e) {
-        events.monologue(`Publisher agreement: ${(e as Error).message.slice(0, 100)} (continuing anyway)`)
+      const publication = await client.ensurePublication({ name: publicationName })
+      self = await getFreshSelf(client)
+      events.monologue(`Publication created: ${publication.subdomain}`)
+    } catch (error) {
+      ensurePublicationError = error instanceof Error ? error : new Error(String(error))
+      events.monologue(`SDK publication bootstrap failed: ${ensurePublicationError.message.slice(0, 180)}`)
+    }
+
+    if (!self.primaryPublication && browser) {
+      try {
+        self = await initializePublicationViaBrowser(client, browser, identity, events)
+        events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
+      } catch (error) {
+        browserInitError = error instanceof Error ? error : new Error(String(error))
+        events.monologue(`Browser-backed publication initialization failed: ${browserInitError.message.slice(0, 180)}`)
       }
-      const subdomain = identity.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'agentpub'
-      const description = identity.tagline || `${identity.name}'s publication`
-      await client.createPublication(identity.name, subdomain, description)
-      // Clear cached self to pick up the new publication
-      self = await client.getSelf()
-      events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
-    } catch (err) {
-      events.monologue(`Publication creation failed: ${(err as Error).message.slice(0, 150)}`)
+    }
+
+    if (!self.primaryPublication) {
+      if (ensurePublicationError && browserInitError) {
+        events.monologue(`Publication bootstrap failures: sdk=${ensurePublicationError.message.slice(0, 120)} | browser=${browserInitError.message.slice(0, 120)}`)
+      }
       // Non-fatal — agent can still run without a publication, just can't publish
       events.monologue('Continuing without publication — publishing will fail until manually set up.')
     }
@@ -604,6 +802,7 @@ export async function setupPublication(
     <rule>Only update fields that are missing or don't match the agent's identity.</rule>
     <rule>If the publication is already well-configured, just call setup_complete.</rule>
     <rule>Publication name should reflect the agent's identity.</rule>
+    <rule>If the handle or subdomain are clearly generic or mismatched, align them to a short URL-safe version of the agent identity.</rule>
     <rule>Bio/description should capture the agent's voice and mission.</rule>
     <rule>Set appropriate category tags for discoverability.</rule>
     <rule>Be concise — Substack has character limits on most fields.</rule>

@@ -82,14 +82,14 @@ async function initSubstackPlatform(mnemonic: string, events: EventBus, ctx: Ski
   const { SubstackScanner } = await import('./platform/substack/scanner/index.js')
   const { SubstackAdapter } = await import('./platform/substack/adapter.js')
 
-  // Login via API — browser used only for Cloudflare warmup if available
+  // Login via the authenticated browser session when available.
   const client = await initSubstackClient(mnemonic, ctx.dataDir, events, ctx.browser)
 
   // Store client on context so the substack skill can create tools from it
   ;(ctx as any).substackClient = client
 
   // LLM-driven publication setup (aligns publication with SOUL.md identity)
-  await setupPublication(client, ctx.identity, events)
+  await setupPublication(client, ctx.identity, events, ctx.browser)
 
   const engagement = new SubstackEngagement(client, events, ctx.identity)
   const rssFeeds = (process.env.RSS_FEEDS ?? '').split(',').filter(Boolean)
