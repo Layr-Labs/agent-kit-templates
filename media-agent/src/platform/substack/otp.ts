@@ -5,6 +5,7 @@ import type { EventBus } from '../../console/events.js'
 
 const DEFAULT_OTP_EXTRACTION_MODEL = 'anthropic/claude-sonnet-4.6'
 const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
+const MAX_OTP_EXTRACTION_LLM_ROUNDS = 3
 
 const llmOtpCandidateSchema = z.object({
   code: z.string().regex(/^\d{6}$/),
@@ -34,6 +35,12 @@ export interface OtpCandidate {
   source: string
   confidence?: number
   reason: string
+}
+
+export interface OtpAttemptFeedback {
+  code: string
+  source?: string
+  failure: string
 }
 
 export function maskOtpCode(code: string): string {
@@ -101,6 +108,7 @@ export function mergeOtpCandidates(params: {
   selectedCode?: string | null
   llmCandidates?: OtpCandidate[]
   regexCandidates?: OtpCandidate[]
+  appendRegexFallback?: boolean
 }): OtpCandidate[] {
   const ordered: OtpCandidate[] = []
   const seen = new Set<string>()
@@ -126,7 +134,12 @@ export function mergeOtpCandidates(params: {
 
   push(selectedCandidate)
   llmCandidates.forEach(push)
-  ;(params.regexCandidates ?? []).forEach(push)
+
+  const shouldAppendRegexFallback = params.appendRegexFallback
+    ?? (ordered.length === 0)
+  if (shouldAppendRegexFallback) {
+    ;(params.regexCandidates ?? []).forEach(push)
+  }
 
   return ordered
 }
@@ -134,6 +147,9 @@ export function mergeOtpCandidates(params: {
 export async function extractSubstackOtpCandidates(
   input: OtpEmailInput,
   events: EventBus,
+  options: {
+    attemptFeedback?: OtpAttemptFeedback[]
+  } = {},
 ): Promise<OtpCandidate[]> {
   const regexCandidates = collectRegexOtpCandidates(input)
   const hasContent = [input.subject, input.preview, input.text, input.body, input.html].some(
@@ -164,64 +180,89 @@ export async function extractSubstackOtpCandidates(
       `regexCandidates=${regexCandidates.length}`,
       input.subject ? `subject=${JSON.stringify(redactOtpLikeText(input.subject, 100))}` : '',
       input.preview ? `preview=${JSON.stringify(redactOtpLikeText(input.preview, 100))}` : '',
+      options.attemptFeedback?.length
+        ? `failedCandidates=${options.attemptFeedback.map(attempt => `${maskOtpCode(attempt.code)} via ${attempt.source ?? 'unknown'}`).join(', ')}`
+        : '',
     ].filter(Boolean).join(' | '),
   )
 
-  try {
-    const { output } = await generateTrackedText({
-      operation: 'extract_substack_otp',
-      modelId,
-      model: resolveOtpExtractorModel(modelId),
-      output: Output.object({ schema: otpExtractionSchema }),
-      system: [
-        'You extract login verification codes from email content.',
-        'Only return 6-digit numeric codes that literally appear in the message.',
-        'Prefer the code that is most likely tied to the current Substack login request.',
-        'If multiple codes appear, rank the most plausible candidates by confidence.',
-        'Do not invent, normalize, or transform digits.',
-      ].join(' '),
-      prompt: [
-        `<message_id>${trimForPrompt(input.messageId)}</message_id>`,
-        `<from>${trimForPrompt(input.from)}</from>`,
-        `<subject>${trimForPrompt(input.subject)}</subject>`,
-        `<preview>${trimForPrompt(input.preview)}</preview>`,
-        `<text>${trimForPrompt(input.text, 8000)}</text>`,
-        `<body>${trimForPrompt(input.body, 8000)}</body>`,
-        `<html>${trimForPrompt(input.html, 8000)}</html>`,
-      ].join('\n\n'),
-    })
+  let lastError: unknown = null
 
-    const llmCandidates = (output?.candidates ?? []).map((candidate: z.infer<typeof llmOtpCandidateSchema>) => ({
-      code: candidate.code,
-      source: candidate.source,
-      confidence: candidate.confidence,
-      reason: candidate.reason,
-    }))
+  for (let round = 1; round <= MAX_OTP_EXTRACTION_LLM_ROUNDS; round++) {
+    try {
+      const { output } = await generateTrackedText({
+        operation: 'extract_substack_otp',
+        modelId,
+        model: resolveOtpExtractorModel(modelId),
+        output: Output.object({ schema: otpExtractionSchema }),
+        system: [
+          'You extract the current Substack login verification code from a raw email payload.',
+          'The payload may contain HTML, CSS, template markup, and repeated text.',
+          'Only return 6-digit numeric codes that literally appear in the message.',
+          'If multiple codes appear, rank the most plausible candidates by confidence.',
+          'Use semantic judgment to ignore CSS values, dimensions, tracking IDs, timestamps, color values, and layout noise.',
+          'Treat previous failed attempts as rejected by Substack and avoid repeating them unless there are truly no other 6-digit codes in the message.',
+          'Do not invent, normalize, or transform digits.',
+        ].join(' '),
+        prompt: [
+          `<message_id>${trimForPrompt(input.messageId)}</message_id>`,
+          `<from>${trimForPrompt(input.from)}</from>`,
+          `<subject>${trimForPrompt(input.subject, 2000)}</subject>`,
+          `<preview>${trimForPrompt(input.preview, 4000)}</preview>`,
+          `<text>${trimForPrompt(input.text, 16000)}</text>`,
+          `<body>${trimForPrompt(input.body, 20000)}</body>`,
+          `<html>${trimForPrompt(input.html, 24000)}</html>`,
+          `<previous_attempts>${trimAttemptFeedbackForPrompt(options.attemptFeedback)}</previous_attempts>`,
+        ].join('\n\n'),
+      })
 
-    const candidates = mergeOtpCandidates({
-      selectedCode: output?.selectedCode,
-      llmCandidates,
-      regexCandidates,
-    })
+      const llmCandidates = (output?.candidates ?? []).map((candidate: z.infer<typeof llmOtpCandidateSchema>) => ({
+        code: candidate.code,
+        source: candidate.source,
+        confidence: candidate.confidence,
+        reason: candidate.reason,
+      }))
 
-    if (output?.summary) {
-      events.monologue(`OTP extractor summary: ${output.summary.slice(0, 180)}`)
+      const candidates = mergeOtpCandidates({
+        selectedCode: output?.selectedCode,
+        llmCandidates,
+        regexCandidates,
+      })
+
+      if (output?.summary) {
+        events.monologue(`OTP extractor summary: ${output.summary.slice(0, 180)}`)
+      }
+
+      if (candidates.length > 0) {
+        events.monologue(`OTP candidates prepared: ${describeOtpCandidates(candidates)}`)
+        return candidates
+      }
+
+      if (round < MAX_OTP_EXTRACTION_LLM_ROUNDS) {
+        events.monologue(`OTP extractor returned no candidates on round ${round}/${MAX_OTP_EXTRACTION_LLM_ROUNDS}; retrying...`)
+        continue
+      }
+    } catch (error) {
+      lastError = error
+      const message = truncateMessage(error)
+      if (round < MAX_OTP_EXTRACTION_LLM_ROUNDS) {
+        events.monologue(`OTP extractor round ${round}/${MAX_OTP_EXTRACTION_LLM_ROUNDS} failed: ${message}`)
+        continue
+      }
     }
-
-    if (candidates.length > 0) {
-      events.monologue(`OTP candidates prepared: ${describeOtpCandidates(candidates)}`)
-    } else {
-      logOtpDebug(events, `OTP extractor returned no candidates | regexCandidates=${regexCandidates.length}`)
-    }
-
-    return candidates
-  } catch (error) {
-    events.monologue(`OTP extractor fallback: ${truncateMessage(error)}`)
-    if (regexCandidates.length > 0) {
-      events.monologue(`OTP regex fallback candidates: ${describeOtpCandidates(regexCandidates)}`)
-    }
-    return regexCandidates
   }
+
+  if (lastError) {
+    events.monologue(`OTP extractor fallback: ${truncateMessage(lastError)}`)
+  } else {
+    logOtpDebug(events, `OTP extractor exhausted ${MAX_OTP_EXTRACTION_LLM_ROUNDS} round(s) without a candidate | regexCandidates=${regexCandidates.length}`)
+  }
+
+  if (regexCandidates.length > 0) {
+    events.monologue(`OTP regex fallback candidates: ${describeOtpCandidates(regexCandidates)}`)
+  }
+
+  return regexCandidates
 }
 
 function resolveOtpExtractorModel(modelId: string) {
@@ -236,4 +277,21 @@ function trimForPrompt(value: string | undefined, maxLength = 2000): string {
 function truncateMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.length <= 180 ? message : `${message.slice(0, 180)}...`
+}
+
+function trimAttemptFeedbackForPrompt(attemptFeedback: OtpAttemptFeedback[] | undefined): string {
+  if (!attemptFeedback || attemptFeedback.length === 0) return 'none'
+
+  return attemptFeedback
+    .map((attempt, index) => {
+      const failure = attempt.failure.replace(/\s+/g, ' ').trim()
+      const trimmedFailure = failure.length <= 320 ? failure : `${failure.slice(0, 320)}...`
+      return [
+        `attempt=${index + 1}`,
+        `code=${attempt.code}`,
+        attempt.source ? `source=${attempt.source}` : '',
+        `failure=${trimmedFailure}`,
+      ].filter(Boolean).join(' | ')
+    })
+    .join('\n')
 }
