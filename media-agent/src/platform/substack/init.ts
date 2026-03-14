@@ -958,7 +958,7 @@ export async function setupPublication(
     try {
       const publication = await client.ensurePublication({ name: publicationName })
       self = await getFreshSelf(client)
-      events.monologue(`Publication created: ${publication.subdomain}`)
+      events.monologue(`Publication created: ${formatPublicationAddress(publication.subdomain)}`)
     } catch (error) {
       ensurePublicationError = error instanceof Error ? error : new Error(String(error))
       events.monologue(`SDK publication bootstrap failed: ${ensurePublicationError.message.slice(0, 180)}`)
@@ -967,7 +967,7 @@ export async function setupPublication(
     if (!self.primaryPublication && browser) {
       try {
         self = await initializePublicationViaBrowser(client, browser, identity, events)
-        events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
+        events.monologue(`Publication created: ${formatPublicationAddress(self.primaryPublication?.subdomain)}`)
       } catch (error) {
         browserInitError = error instanceof Error ? error : new Error(String(error))
         events.monologue(`Browser-backed publication initialization failed: ${browserInitError.message.slice(0, 180)}`)
@@ -1067,5 +1067,15 @@ export async function setupPublication(
     maxSteps: 10,
   })
 
-  events.monologue('Publication setup complete')
+  events.monologue(
+    self.primaryPublication?.subdomain
+      ? `Publication setup complete: ${formatPublicationAddress(self.primaryPublication.subdomain)}`
+      : 'Publication setup complete'
+  )
+}
+
+function formatPublicationAddress(subdomain: string | undefined | null): string {
+  const handle = subdomain?.trim()
+  if (!handle) return "substack.com"
+  return `https://${handle}.substack.com`
 }

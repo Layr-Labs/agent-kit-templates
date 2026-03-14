@@ -68,6 +68,55 @@ export async function createServer(opts: {
   // Identity
   app.get('/api/identity', async () => identity)
 
+  app.get('/api/platform/profile', async (_req, reply) => {
+    if (config.platform === 'substack') {
+      if (!getSubstackPublicationUrl) {
+        reply.code(404)
+        return { error: 'Platform profile URL is not available for this agent.' }
+      }
+
+      try {
+        const url = await getSubstackPublicationUrl()
+        if (!url) {
+          reply.code(404)
+          return { error: 'Platform profile URL is not available yet.' }
+        }
+
+        return {
+          platform: 'substack',
+          label: 'Publication',
+          url,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.toLowerCase().includes('no publication found')) {
+          reply.code(404)
+          return { error: 'Platform profile has not been created yet.' }
+        }
+
+        reply.code(502)
+        return { error: `Failed to resolve platform profile URL: ${message}` }
+      }
+    }
+
+    if (config.platform === 'twitter') {
+      const username = config.twitter.username.trim().replace(/^@+/, '')
+      if (!username) {
+        reply.code(404)
+        return { error: 'Platform profile URL is not available yet.' }
+      }
+
+      return {
+        platform: 'twitter',
+        label: 'Profile',
+        url: `https://x.com/${username}`,
+      }
+    }
+
+    reply.code(404)
+    return { error: 'Platform profile URL is not available for this agent.' }
+  })
+
   app.get('/api/substack/publication', async (_req, reply) => {
     if (config.platform !== 'substack' || !getSubstackPublicationUrl) {
       reply.code(404)
