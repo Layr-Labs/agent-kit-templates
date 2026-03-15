@@ -149,7 +149,7 @@ export async function installSkillBundle(
   try {
     await stat(packageJsonPath)
     try {
-      execFileSync('npm', ['install', '--production'], { cwd: skillDir, stdio: 'pipe' })
+      execFileSync('npm', ['install', '--omit=dev', '--ignore-scripts'], { cwd: skillDir, stdio: 'pipe' })
     } catch (err: any) {
       const stderr = err.stderr?.toString() ?? err.message
       throw new Error(`npm install failed for skill "${parsed.manifest.name}": ${stderr}`)
