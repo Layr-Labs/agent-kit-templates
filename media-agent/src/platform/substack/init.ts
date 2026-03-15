@@ -419,6 +419,43 @@ export async function authenticateVerifiedSession(
   }
 }
 
+export async function reuseBrowserAuthenticatedSession(
+  client: Pick<SubstackClient, 'authenticate' | 'amILoggedIn'>,
+  browser: BrowserLike,
+  cookiesPath: string,
+  events: EventBus,
+): Promise<CookieEntry[] | null> {
+  events.monologue('Checking whether Substack already has an authenticated browser session...')
+
+  const profileResult = await browserJsonRequest<any>(browser, `${SUBSTACK_BASE}/api/v1/user/profile`)
+  if (!profileResult.ok) {
+    logSubstackLoginDebug(
+      events,
+      `Browser auth probe found no active Substack session | ${summarizeBrowserFetchFailure('user-profile', profileResult)}`,
+    )
+    return null
+  }
+
+  const cookies = await extractBrowserSessionCookies(browser, events)
+  if (cookies.length === 0) {
+    throw new Error('Browser session looks authenticated, but no Substack cookies could be extracted.')
+  }
+
+  await authenticateVerifiedSession(client, cookies)
+  await saveCookies(cookiesPath, cookies)
+
+  const handle = String(
+    profileResult.json?.handle ??
+    profileResult.json?.profile?.handle ??
+    '',
+  ).trim()
+  events.monologue(
+    `Browser already authenticated with Substack${handle ? ` (@${handle})` : ''}; skipping OTP login.`,
+  )
+
+  return cookies
+}
+
 async function getFreshSelf(client: SubstackClient): Promise<any> {
   return client.refreshSelf()
 }
@@ -617,6 +654,16 @@ async function loginViaBrowser(
   events.monologue('Navigating to Substack (Cloudflare warmup)...')
   await browser.navigate('https://substack.com')
   await browser.waitMs(5000)
+
+  const existingBrowserSessionCookies = await reuseBrowserAuthenticatedSession(
+    new SubstackClient(),
+    browser,
+    cookiesPath,
+    events,
+  )
+  if (existingBrowserSessionCookies) {
+    return { cookies: existingBrowserSessionCookies, email }
+  }
 
   // Snapshot existing inbox state before requesting a new OTP so we do not
   // accidentally classify the fresh verification email as stale.
