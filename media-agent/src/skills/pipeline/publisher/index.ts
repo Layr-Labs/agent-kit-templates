@@ -117,15 +117,18 @@ const skill: Skill = {
 
           ctx.events.transition('publishing')
 
-          // Include header image if one was generated
-          const headerImage = ctx.state.imagePaths.length > 0 ? ctx.state.imagePaths[0] : undefined
+          const articleImagePaths = article.images.map((image) => image.imagePath)
+          const headerImage = article.images.find((image) => image.placement === 'header')?.imagePath
+            ?? articleImagePaths[0]
+            ?? ctx.state.imagePaths[0]
 
           let result
           try {
             result = await ctx.platform.publish({
               text: article.body,
-              imagePath: headerImage,
               contentType: 'article',
+              article,
+              imagePath: headerImage,
               metadata: { title: article.title, subtitle: article.subtitle },
             })
           } catch (err: any) {
@@ -144,7 +147,7 @@ const skill: Skill = {
             type: 'article',
             concept,
             prompt: ctx.state.imagePrompt ?? '',
-            variants: ctx.state.imagePaths,
+            variants: articleImagePaths,
             selectedVariant: 0,
             critique,
             caption: article.title,
@@ -157,6 +160,7 @@ const skill: Skill = {
             contentId: concept.id,
             text: article.title,
             summary: article.subtitle,
+            imageUrl: headerImage,
             articleUrl: result.url,
             type: 'article',
             postedAt: Date.now(),
