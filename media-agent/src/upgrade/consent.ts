@@ -96,8 +96,8 @@ export async function handleUpgradeConsent(opts: {
 
   const { output } = await generateTrackedText({
     operation: 'upgrade_consent_review',
-    modelId: config.modelId('editing'),
-    model: config.model('editing'),
+    modelId: config.modelId('review'),
+    model: config.model('review'),
     output: Output.object({ schema: consentDecisionSchema }),
     system: `<role>You are the live constitutional consent gate for a sovereign agent.</role>
 

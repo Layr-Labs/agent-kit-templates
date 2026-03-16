@@ -5,6 +5,7 @@ export type ModelTask =
   | 'ideation'
   | 'generation'
   | 'caption'
+  | 'review'
   | 'editing'
   | 'writing'
   | 'engagement'
@@ -28,7 +29,7 @@ export function resolveModel(
   const overrideKey = contentType ? `${contentType}_${task}` : undefined
   const modelId =
     resolveRuntimeModelOverride(task) ||
-    ((overrideKey && models.overrides?.[overrideKey]) || models[task])
+    ((overrideKey && models.overrides?.[overrideKey]) || models[task] || (task === 'review' ? models.editing : undefined))
 
   if (!modelId) {
     throw new Error(`No model configured for task: ${task}`)
@@ -47,11 +48,12 @@ export function resolveModelId(
   return resolveRuntimeModelOverride(task) ||
     (overrideKey && models.overrides?.[overrideKey]) ||
     models[task] ||
+    (task === 'review' ? models.editing : undefined) ||
     'anthropic/claude-sonnet-4.6'
 }
 
 function resolveRuntimeModelOverride(task: ModelTask): string | undefined {
   if (!agentModelOverride) return undefined
-  if (task === 'generation') return undefined
+  if (task === 'generation' || task === 'review') return undefined
   return agentModelOverride
 }
