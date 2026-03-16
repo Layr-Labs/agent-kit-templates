@@ -1,4 +1,5 @@
 import type { SubstackClient, ImageUploadResponse } from 'substack-skill'
+import type { WrittenArticle } from '../../types.js'
 
 // ─── Section Type (shared by create_draft and update_draft) ──
 
@@ -36,6 +37,75 @@ export async function buildPostBody(sections: Section[]) {
   }
 
   return builder.build()
+}
+
+export async function buildArticleSections(
+  article: WrittenArticle,
+  opts: {
+    uploadImage?: (filePath: string) => Promise<string>
+    onImageError?: (message: string) => void
+  } = {},
+): Promise<Section[]> {
+  const imageById = new Map(article.images.map((image) => [image.id, image]))
+  const sections: Section[] = []
+
+  for (const section of article.sections) {
+    if (section.type === 'heading') {
+      sections.push({
+        type: 'heading',
+        text: section.text,
+        level: section.level,
+      })
+      continue
+    }
+
+    if (section.type === 'paragraph') {
+      sections.push({
+        type: 'paragraph',
+        text: section.text,
+      })
+      continue
+    }
+
+    const image = imageById.get(section.imageId)
+    if (!image) {
+      opts.onImageError?.(`Article image "${section.imageId}" is missing from the article asset list.`)
+      continue
+    }
+
+    try {
+      const src = opts.uploadImage
+        ? await opts.uploadImage(image.imagePath)
+        : image.imagePath
+
+      sections.push({
+        type: 'image',
+        src,
+        alt: image.alt,
+        caption: image.caption,
+      })
+    } catch (err) {
+      opts.onImageError?.(`Article image "${section.imageId}" failed to upload: ${(err as Error).message}`)
+    }
+  }
+
+  return sections
+}
+
+export async function buildArticleBody(
+  client: SubstackClient,
+  article: WrittenArticle,
+  opts: { onImageError?: (message: string) => void } = {},
+) {
+  const sections = await buildArticleSections(article, {
+    uploadImage: async (filePath) => {
+      const uploaded = await uploadImageFromPath(client, filePath)
+      return uploaded.url
+    },
+    onImageError: opts.onImageError,
+  })
+
+  return buildPostBody(sections)
 }
 
 // ─── Image Upload ────────────────────────────────────────────

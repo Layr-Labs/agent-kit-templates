@@ -1,5 +1,6 @@
 import type { EventBus } from '../console/events.js'
 import type { Signal } from '../types.js'
+import type { WrittenArticle } from '../types.js'
 
 export interface PublishOptions {
   text: string
@@ -7,6 +8,7 @@ export interface PublishOptions {
   videoPath?: string
   referenceId?: string
   contentType: 'image' | 'article' | 'video'
+  article?: WrittenArticle
   metadata?: Record<string, unknown>
 }
 

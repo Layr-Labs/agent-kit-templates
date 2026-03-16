@@ -3,7 +3,7 @@ import type { PlatformAdapter, PublishOptions, PublishResult, Scanner } from '..
 import type { SubstackClient } from 'substack-skill'
 import type { SubstackEngagement } from './engagement.js'
 import type { SubstackScanner } from './scanner/index.js'
-import { uploadImageFromPath, uploadAndAttachImage } from './helpers.js'
+import { buildArticleBody, buildPostBody, uploadImageFromPath, uploadAndAttachImage, type Section } from './helpers.js'
 
 export class SubstackAdapter implements PlatformAdapter {
   readonly name = 'substack'
@@ -22,30 +22,19 @@ export class SubstackAdapter implements PlatformAdapter {
   }
 
   async publish(opts: PublishOptions): Promise<PublishResult> {
-    const { PostBuilder } = await import('substack-skill')
-
     if (opts.contentType === 'article') {
       const metadata = opts.metadata as { title?: string; subtitle?: string } | undefined
       const title = metadata?.title ?? 'Untitled'
-      const builder = new PostBuilder()
-
-      if (opts.imagePath) {
-        try {
-          const uploaded = await uploadImageFromPath(this.client, opts.imagePath)
-          builder.image(uploaded.url, title)
-        } catch (err) {
-          this.events.monologue(`Header image upload failed: ${(err as Error).message}`)
-        }
-      }
-
-      for (const paragraph of opts.text.split('\n\n').filter(Boolean)) {
-        builder.paragraph(paragraph)
-      }
+      const body = opts.article
+        ? await buildArticleBody(this.client, opts.article, {
+          onImageError: (message) => this.events.monologue(message),
+        })
+        : await buildPostBody(await this.buildFallbackSections(opts.text, opts.imagePath, title))
 
       const draft = await this.client.createDraft({
         title,
         subtitle: metadata?.subtitle,
-        body: builder.build(),
+        body,
         audience: 'everyone',
       })
 
@@ -76,6 +65,41 @@ export class SubstackAdapter implements PlatformAdapter {
       platformId: result?.id?.toString() ?? Date.now().toString(),
       url: result?.url,
     }
+  }
+
+  private async buildFallbackSections(text: string, headerImagePath: string | undefined, title: string): Promise<Section[]> {
+    const sections: Section[] = []
+
+    if (headerImagePath) {
+      try {
+        const uploaded = await uploadImageFromPath(this.client, headerImagePath)
+        sections.push({
+          type: 'image',
+          src: uploaded.url,
+          alt: title,
+        })
+      } catch (err) {
+        this.events.monologue(`Header image upload failed: ${(err as Error).message}`)
+      }
+    }
+
+    for (const chunk of text.split('\n\n').map((entry) => entry.trim()).filter(Boolean)) {
+      const headingMatch = chunk.match(/^(#{1,6})\s+(.+)$/)
+      if (headingMatch) {
+        sections.push({
+          type: 'heading',
+          text: headingMatch[2].trim(),
+          level: headingMatch[1].length,
+        })
+      } else {
+        sections.push({
+          type: 'paragraph',
+          text: chunk,
+        })
+      }
+    }
+
+    return sections
   }
 
   async engage(): Promise<void> {

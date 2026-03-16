@@ -51,6 +51,39 @@ export interface ContentConcept {
   referenceImageUrls?: string[]
 }
 
+export interface ArticleImageAsset {
+  id: string
+  prompt: string
+  imagePath: string
+  alt: string
+  caption?: string
+  placement: 'header' | 'inline'
+  anchorHeading?: string
+}
+
+export type ArticleSection =
+  | {
+    type: 'heading'
+    text: string
+    level: 1 | 2 | 3 | 4 | 5 | 6
+  }
+  | {
+    type: 'paragraph'
+    text: string
+  }
+  | {
+    type: 'image'
+    imageId: string
+  }
+
+export interface WrittenArticle {
+  title: string
+  subtitle: string
+  body: string
+  sections: ArticleSection[]
+  images: ArticleImageAsset[]
+}
+
 export interface ConceptCritique {
   conceptId: string
   quality: number

@@ -1,4 +1,4 @@
-import type { Signal, Topic, ContentConcept, ConceptCritique, Content, Post } from '../types.js'
+import type { Signal, Topic, ContentConcept, ConceptCritique, Content, Post, WrittenArticle } from '../types.js'
 
 export interface PipelineState {
   // Per-workflow state (reset between workflows)
@@ -10,7 +10,7 @@ export interface PipelineState {
   imagePaths: string[]
   imagePrompt: string | null
   caption: string | null
-  article: { title: string; subtitle: string; body: string } | null
+  article: WrittenArticle | null
   review: { approved: boolean; caption: string; reason?: string; qualityScore?: number } | null
 
   // Long-lived state (persists across workflows)
