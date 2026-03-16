@@ -2,7 +2,7 @@ import { Output } from 'ai'
 import { z } from 'zod'
 import { generateTrackedText } from '../../ai/tracking.js'
 import type { EventBus } from '../../console/events.js'
-import { getGatewayProvider } from '../../config/models.js'
+import { getEigenProvider } from '../../config/models.js'
 
 const DEFAULT_OTP_EXTRACTION_MODEL = 'anthropic/claude-sonnet-4.6'
 const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
@@ -251,7 +251,7 @@ export async function extractSubstackOtpCandidates(
 }
 
 function resolveOtpExtractorModel(modelId: string) {
-  return getGatewayProvider()(modelId)
+  return getEigenProvider()(modelId)
 }
 
 function trimForPrompt(value: string | undefined, maxLength = 2000): string {

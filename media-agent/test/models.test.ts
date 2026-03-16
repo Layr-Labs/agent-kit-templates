@@ -1,34 +1,27 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { assertModelProviderConfigured, resolveModel } from '../src/config/models.js'
 
-const originalProxyUrl = process.env.LLM_PROXY_URL
-const originalEigenGatewayUrl = process.env.EIGEN_GATEWAY_URL
-const originalProxyApiKey = process.env.LLM_PROXY_API_KEY
-const originalKmsAuthJwt = process.env.KMS_AUTH_JWT
+const envKeys = [
+  'LLM_PROXY_URL',
+  'EIGEN_GATEWAY_URL',
+  'LLM_PROXY_API_KEY',
+  'KMS_AUTH_JWT',
+  'KMS_SERVER_URL',
+  'KMS_PUBLIC_KEY',
+] as const
+
+const savedEnv: Record<string, string | undefined> = {}
+for (const key of envKeys) {
+  savedEnv[key] = process.env[key]
+}
 
 afterEach(() => {
-  if (originalProxyUrl === undefined) {
-    delete process.env.LLM_PROXY_URL
-  } else {
-    process.env.LLM_PROXY_URL = originalProxyUrl
-  }
-
-  if (originalEigenGatewayUrl === undefined) {
-    delete process.env.EIGEN_GATEWAY_URL
-  } else {
-    process.env.EIGEN_GATEWAY_URL = originalEigenGatewayUrl
-  }
-
-  if (originalProxyApiKey === undefined) {
-    delete process.env.LLM_PROXY_API_KEY
-  } else {
-    process.env.LLM_PROXY_API_KEY = originalProxyApiKey
-  }
-
-  if (originalKmsAuthJwt === undefined) {
-    delete process.env.KMS_AUTH_JWT
-  } else {
-    process.env.KMS_AUTH_JWT = originalKmsAuthJwt
+  for (const key of envKeys) {
+    if (savedEnv[key] === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = savedEnv[key]
+    }
   }
 })
 
@@ -46,8 +39,20 @@ describe('proxy-backed model resolution', () => {
     process.env.EIGEN_GATEWAY_URL = 'https://proxy.example.com'
     delete process.env.LLM_PROXY_API_KEY
     delete process.env.KMS_AUTH_JWT
+    delete process.env.KMS_SERVER_URL
+    delete process.env.KMS_PUBLIC_KEY
 
     expect(() => assertModelProviderConfigured()).toThrow('LLM_PROXY_API_KEY or KMS_AUTH_JWT is required')
+  })
+
+  it('accepts attestation config as an alternative to a static JWT', () => {
+    process.env.EIGEN_GATEWAY_URL = 'https://proxy.example.com'
+    delete process.env.LLM_PROXY_API_KEY
+    delete process.env.KMS_AUTH_JWT
+    process.env.KMS_SERVER_URL = 'https://kms.example.com'
+    process.env.KMS_PUBLIC_KEY = 'test-public-key'
+
+    expect(() => assertModelProviderConfigured()).not.toThrow()
   })
 
   it('resolves models through the proxy provider when configured', () => {
