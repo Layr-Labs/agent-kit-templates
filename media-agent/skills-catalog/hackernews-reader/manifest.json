@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "hackernews-reader",
+  "version": "1.0.0",
+  "description": "Search and read Hacker News stories, comments, and discussions via the Algolia and Firebase APIs",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_hn", "description": "Full-text search across Hacker News stories and comments" },
+    { "name": "get_hn_top_stories", "description": "Get current top, best, new, ask, or show stories from Hacker News" },
+    { "name": "get_hn_item", "description": "Get a specific Hacker News item (story or comment) by ID" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_hn", "get_hn_top_stories", "get_hn_item"]
+  },
+  "enabled": true
+}

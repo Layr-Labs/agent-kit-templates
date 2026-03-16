@@ -1,0 +1,18 @@
+{
+  "apiVersion": 1,
+  "name": "defillama-reader",
+  "version": "1.0.0",
+  "description": "Read DeFi protocol data from DefiLlama — TVL, yields, chains, and protocol metadata. No API key required.",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_defi_protocols", "description": "Search DeFi protocols by name" },
+    { "name": "get_protocol_tvl", "description": "Get TVL and metadata for a specific DeFi protocol" },
+    { "name": "get_chain_tvl", "description": "Get TVL data for blockchain chains" },
+    { "name": "get_defi_yields", "description": "Get yield/APY data across DeFi protocols and pools" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_defi_protocols", "get_protocol_tvl", "get_chain_tvl", "get_defi_yields"]
+  },
+  "enabled": true
+}

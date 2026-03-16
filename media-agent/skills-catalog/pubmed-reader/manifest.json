@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "pubmed-reader",
+  "version": "1.0.0",
+  "description": "Search and read biomedical literature from PubMed and PubMed Central via NCBI E-Utilities",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_pubmed", "description": "Search PubMed for biomedical articles by query and filters" },
+    { "name": "get_pubmed_article", "description": "Get full metadata and abstract for a PubMed article by PMID" },
+    { "name": "read_pmc_fulltext", "description": "Read full text of an open-access article from PubMed Central" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_pubmed", "get_pubmed_article", "read_pmc_fulltext"]
+  },
+  "enabled": true
+}
