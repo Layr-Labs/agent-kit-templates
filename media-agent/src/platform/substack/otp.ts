@@ -18,6 +18,12 @@ const otpExtractionSchema = z.object({
   selectedCode: z.string().regex(/^\d{6}$/).nullable(),
   summary: z.string().min(1).max(240),
   candidates: z.array(llmOtpCandidateSchema).max(5),
+  noOtpRequired: z.boolean(),
+  noOtpReason: z.string().max(240).optional(),
+  loginLinks: z.array(z.object({
+    url: z.string().url(),
+    label: z.string().max(120),
+  })).max(3).optional(),
 })
 
 export interface OtpEmailInput {
@@ -41,6 +47,18 @@ export interface OtpAttemptFeedback {
   code: string
   source?: string
   failure: string
+}
+
+export interface LoginLink {
+  url: string
+  label: string
+}
+
+export interface OtpExtractionResult {
+  candidates: OtpCandidate[]
+  noOtpRequired: boolean
+  noOtpReason?: string
+  loginLinks?: LoginLink[]
 }
 
 export function maskOtpCode(code: string): string {
@@ -76,39 +94,9 @@ export function describeOtpCandidates(candidates: OtpCandidate[]): string {
     .join(', ')
 }
 
-export function findOtpCodesInText(text: string | undefined): string[] {
-  if (!text) return []
-  return text.match(/\b\d{6}\b/g) ?? []
-}
-
-export function collectRegexOtpCandidates(input: OtpEmailInput): OtpCandidate[] {
-  const ordered: OtpCandidate[] = []
-  const seen = new Set<string>()
-
-  const pushMatches = (text: string | undefined, source: string, reason: string) => {
-    if (!text) return
-    const matches = findOtpCodesInText(text)
-    for (const code of matches) {
-      if (seen.has(code)) continue
-      seen.add(code)
-      ordered.push({ code, source, reason })
-    }
-  }
-
-  pushMatches(input.subject, 'regex-subject', 'Regex match in the subject line.')
-  pushMatches(input.preview, 'regex-preview', 'Regex match in the inbox preview/snippet.')
-  pushMatches(input.text, 'regex-text', 'Regex match in the plain-text message.')
-  pushMatches(input.body, 'regex-body', 'Regex match in the plain-text body.')
-  pushMatches(input.html, 'regex-html', 'Regex match in the HTML body.')
-
-  return ordered
-}
-
 export function mergeOtpCandidates(params: {
   selectedCode?: string | null
   llmCandidates?: OtpCandidate[]
-  regexCandidates?: OtpCandidate[]
-  appendRegexFallback?: boolean
 }): OtpCandidate[] {
   const ordered: OtpCandidate[] = []
   const seen = new Set<string>()
@@ -135,12 +123,6 @@ export function mergeOtpCandidates(params: {
   push(selectedCandidate)
   llmCandidates.forEach(push)
 
-  const shouldAppendRegexFallback = params.appendRegexFallback
-    ?? (ordered.length === 0)
-  if (shouldAppendRegexFallback) {
-    ;(params.regexCandidates ?? []).forEach(push)
-  }
-
   return ordered
 }
 
@@ -150,8 +132,7 @@ export async function extractSubstackOtpCandidates(
   options: {
     attemptFeedback?: OtpAttemptFeedback[]
   } = {},
-): Promise<OtpCandidate[]> {
-  const regexCandidates = collectRegexOtpCandidates(input)
+): Promise<OtpExtractionResult> {
   const hasContent = [input.subject, input.preview, input.text, input.body, input.html].some(
     value => value && value.trim().length > 0,
   )
@@ -159,9 +140,9 @@ export async function extractSubstackOtpCandidates(
   if (!hasContent) {
     logOtpDebug(
       events,
-      `OTP extractor received empty message payload | subjectLen=${input.subject?.length ?? 0} | previewLen=${input.preview?.length ?? 0} | textLen=${input.text?.length ?? 0} | bodyLen=${input.body?.length ?? 0} | htmlLen=${input.html?.length ?? 0} | regexCandidates=${regexCandidates.length}`,
+      `OTP extractor received empty message payload | subjectLen=${input.subject?.length ?? 0} | previewLen=${input.preview?.length ?? 0} | textLen=${input.text?.length ?? 0} | bodyLen=${input.body?.length ?? 0} | htmlLen=${input.html?.length ?? 0}`,
     )
-    return regexCandidates
+    return { candidates: [], noOtpRequired: false }
   }
 
   const modelId = process.env.SUBSTACK_OTP_MODEL?.trim()
@@ -177,7 +158,6 @@ export async function extractSubstackOtpCandidates(
       `textLen=${input.text?.length ?? 0}`,
       `bodyLen=${input.body?.length ?? 0}`,
       `htmlLen=${input.html?.length ?? 0}`,
-      `regexCandidates=${regexCandidates.length}`,
       input.subject ? `subject=${JSON.stringify(redactOtpLikeText(input.subject, 100))}` : '',
       input.preview ? `preview=${JSON.stringify(redactOtpLikeText(input.preview, 100))}` : '',
       options.attemptFeedback?.length
@@ -203,6 +183,8 @@ export async function extractSubstackOtpCandidates(
           'Use semantic judgment to ignore CSS values, dimensions, tracking IDs, timestamps, color values, and layout noise.',
           'Treat previous failed attempts as rejected by Substack and avoid repeating them unless there are truly no other 6-digit codes in the message.',
           'Do not invent, normalize, or transform digits.',
+          'If the email does not contain a 6-digit verification code — for example it indicates the user is already signed in, is a newsletter, notification, or any non-OTP email — set noOtpRequired to true and explain in noOtpReason. Otherwise set noOtpRequired to false.',
+          'If the email contains any login, sign-in, or verification links (e.g. magic login URLs, "click to sign in" buttons), extract up to 3 of them into loginLinks with the URL and a short label describing the link.',
         ].join(' '),
         prompt: [
           `<message_id>${trimForPrompt(input.messageId)}</message_id>`,
@@ -226,16 +208,22 @@ export async function extractSubstackOtpCandidates(
       const candidates = mergeOtpCandidates({
         selectedCode: output?.selectedCode,
         llmCandidates,
-        regexCandidates,
       })
 
       if (output?.summary) {
         events.monologue(`OTP extractor summary: ${output.summary.slice(0, 180)}`)
       }
 
+      const loginLinks = output?.loginLinks?.filter(link => link.url && link.label) ?? []
+
+      if (output?.noOtpRequired && candidates.length === 0) {
+        events.monologue(`OTP extractor says no OTP required: ${output.noOtpReason ?? 'unknown reason'}${loginLinks.length > 0 ? ` | ${loginLinks.length} login link(s) found` : ''}`)
+        return { candidates: [], noOtpRequired: true, noOtpReason: output.noOtpReason, loginLinks }
+      }
+
       if (candidates.length > 0) {
-        events.monologue(`OTP candidates prepared: ${describeOtpCandidates(candidates)}`)
-        return candidates
+        events.monologue(`OTP candidates prepared: ${describeOtpCandidates(candidates)}${loginLinks.length > 0 ? ` | ${loginLinks.length} login link(s) found` : ''}`)
+        return { candidates, noOtpRequired: false, loginLinks }
       }
 
       if (round < MAX_OTP_EXTRACTION_LLM_ROUNDS) {
@@ -253,16 +241,12 @@ export async function extractSubstackOtpCandidates(
   }
 
   if (lastError) {
-    events.monologue(`OTP extractor fallback: ${truncateMessage(lastError)}`)
+    events.monologue(`OTP extractor failed: ${truncateMessage(lastError)}`)
   } else {
-    logOtpDebug(events, `OTP extractor exhausted ${MAX_OTP_EXTRACTION_LLM_ROUNDS} round(s) without a candidate | regexCandidates=${regexCandidates.length}`)
+    logOtpDebug(events, `OTP extractor exhausted ${MAX_OTP_EXTRACTION_LLM_ROUNDS} round(s) without a candidate`)
   }
 
-  if (regexCandidates.length > 0) {
-    events.monologue(`OTP regex fallback candidates: ${describeOtpCandidates(regexCandidates)}`)
-  }
-
-  return regexCandidates
+  return { candidates: [], noOtpRequired: false }
 }
 
 function resolveOtpExtractorModel(modelId: string) {

@@ -13,14 +13,13 @@ import { generateTrackedText } from '../../ai/tracking.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
 import {
-  collectRegexOtpCandidates,
   describeOtpCandidates,
   extractSubstackOtpCandidates,
-  findOtpCodesInText,
   maskOtpCode,
   type OtpCandidate,
   type OtpAttemptFeedback,
   type OtpEmailInput,
+  type OtpExtractionResult,
 } from './otp.js'
 
 const SUBSTACK_BASE = 'https://substack.com'
@@ -101,12 +100,13 @@ function summarizeOtpEmailForDebug(input: {
   body?: string
   html?: string
 }): string {
+  const findCodes = (text: string | undefined): string[] => text?.match(/\b\d{6}\b/g) ?? []
   const hintedCodes = [
-    ...findOtpCodesInText(input.subject),
-    ...findOtpCodesInText(input.preview),
-    ...findOtpCodesInText(input.text),
-    ...findOtpCodesInText(input.body),
-    ...findOtpCodesInText(input.html),
+    ...findCodes(input.subject),
+    ...findCodes(input.preview),
+    ...findCodes(input.text),
+    ...findCodes(input.body),
+    ...findCodes(input.html),
   ]
   const uniqueCodes = [...new Set(hintedCodes)].map(code => maskOtpCode(code))
 
@@ -744,6 +744,7 @@ async function loginViaBrowser(
   let otpCandidates: OtpCandidate[] = []
   let otpEmailForCandidates: OtpEmailInput | null = null
   let lastInboxSummary = 'no inbox poll completed'
+  let browserSessionRechecked = false
   const inspectedMessageIds = new Set<string>()
   for (let attempt = 0; attempt < 40; attempt++) {
     await new Promise(r => setTimeout(r, 3000))
@@ -772,10 +773,37 @@ async function loginViaBrowser(
           }
           logSubstackLoginDebug(
             events,
-            `Inspecting inbox message | ${summarizeInboxMessageForDebug(full ?? msg)} | ${summarizeOtpEmailForDebug(otpEmail)} | regexCandidates=${collectRegexOtpCandidates(otpEmail).length}`,
+            `Inspecting inbox message | ${summarizeInboxMessageForDebug(full ?? msg)} | ${summarizeOtpEmailForDebug(otpEmail)}`,
           )
-          otpCandidates = await extractSubstackOtpCandidates(otpEmail, events)
-          if (otpCandidates.length > 0) {
+          const extractionResult = await extractSubstackOtpCandidates(otpEmail, events)
+
+          if (extractionResult.noOtpRequired && !browserSessionRechecked) {
+            browserSessionRechecked = true
+            events.monologue(`OTP extractor says no OTP required: ${extractionResult.noOtpReason ?? 'unknown reason'}. Re-checking browser session...`)
+
+            // If the email contains a magic login link, navigate to it first
+            const loginLinks = extractionResult.loginLinks ?? []
+            if (loginLinks.length > 0) {
+              const link = loginLinks[0]
+              events.monologue(`Found login link: "${link.label}" — navigating to complete sign-in...`)
+              await browser.navigate(link.url)
+              await browser.waitMs(3000)
+            }
+
+            const recheckCookies = await reuseBrowserAuthenticatedSession(
+              new SubstackClient(),
+              browser,
+              cookiesPath,
+              events,
+            )
+            if (recheckCookies) {
+              return { cookies: recheckCookies, email }
+            }
+            events.monologue('Browser session re-check did not find an active session. Continuing OTP polling...')
+          }
+
+          if (extractionResult.candidates.length > 0) {
+            otpCandidates = extractionResult.candidates
             otpEmailForCandidates = otpEmail
             break
           }
@@ -831,12 +859,12 @@ async function loginViaBrowser(
     if (otpEmailForCandidates && refinementCount < MAX_BROWSER_OTP_REFINEMENTS) {
       refinementCount += 1
       events.monologue(`Substack rejected ${maskOtpCode(candidate.code)}. Re-evaluating the OTP email with failure context...`)
-      const refinedCandidates = await extractSubstackOtpCandidates(
+      const refinedResult = await extractSubstackOtpCandidates(
         otpEmailForCandidates,
         events,
         { attemptFeedback: attemptedFeedback },
       )
-      const newCandidates = refinedCandidates.filter(refined => !queuedCodes.has(refined.code))
+      const newCandidates = refinedResult.candidates.filter(refined => !queuedCodes.has(refined.code))
       if (newCandidates.length > 0) {
         newCandidates.forEach(refined => queuedCodes.add(refined.code))
         queuedCandidates.push(...newCandidates)
