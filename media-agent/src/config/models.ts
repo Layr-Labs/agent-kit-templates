@@ -1,4 +1,5 @@
-import { createGateway } from 'ai'
+import { createEigenGateway } from '../ai/gateway/index.js'
+import type { EigenGatewayProviderConfig } from '../ai/gateway/index.js'
 
 export type ModelTask =
   | 'scoring'
@@ -13,14 +14,14 @@ export type ModelTask =
   | 'compilation'
 
 const agentModelOverride = process.env.AGENT_MODEL?.trim()
-let gatewayProvider: ReturnType<typeof createGateway> | null = null
+let eigenProvider: ReturnType<typeof createEigenGateway> | null = null
 
 export function assertModelProviderConfigured(): void {
-  if (!resolveProxyBaseURL()) {
+  if (!resolveBaseURL()) {
     throw new Error('LLM_PROXY_URL or EIGEN_GATEWAY_URL is required.')
   }
 
-  if (!resolveProxyApiKey()) {
+  if (!resolveStaticJwt() && !resolveAttestConfig()) {
     throw new Error('LLM_PROXY_API_KEY or KMS_AUTH_JWT is required.')
   }
 }
@@ -40,7 +41,7 @@ export function resolveModel(
   }
 
   assertModelProviderConfigured()
-  return getGatewayProvider()(modelId)
+  return getEigenProvider()(modelId)
 }
 
 export function resolveModelId(
@@ -61,28 +62,48 @@ function resolveRuntimeModelOverride(task: ModelTask): string | undefined {
   return agentModelOverride
 }
 
-export function getGatewayProvider(): ReturnType<typeof createGateway> {
-  const baseURL = resolveProxyBaseURL()
-  const apiKey = resolveProxyApiKey()
+export function getEigenProvider(): ReturnType<typeof createEigenGateway> {
+  const baseURL = resolveBaseURL()
+  const jwt = resolveStaticJwt()
+  const attestConfig = resolveAttestConfig()
 
-  if (!baseURL || !apiKey) {
+  if (!baseURL || (!jwt && !attestConfig)) {
     throw new Error('Proxy provider is not configured.')
   }
 
-  if (!gatewayProvider) {
-    gatewayProvider = createGateway({
+  if (!eigenProvider) {
+    const config: EigenGatewayProviderConfig = {
       baseURL,
-      apiKey,
-    })
+      debug: process.env.DEBUG === 'true',
+    }
+
+    if (jwt) {
+      config.jwt = jwt
+    }
+
+    if (attestConfig) {
+      config.attestConfig = attestConfig
+    }
+
+    eigenProvider = createEigenGateway(config)
   }
 
-  return gatewayProvider
+  return eigenProvider
 }
 
-function resolveProxyBaseURL(): string | undefined {
+function resolveBaseURL(): string | undefined {
   return process.env.LLM_PROXY_URL?.trim() || process.env.EIGEN_GATEWAY_URL?.trim()
 }
 
-function resolveProxyApiKey(): string | undefined {
+function resolveStaticJwt(): string | undefined {
   return process.env.LLM_PROXY_API_KEY?.trim() || process.env.KMS_AUTH_JWT?.trim()
+}
+
+function resolveAttestConfig(): { kmsServerURL: string; kmsPublicKey: string; audience: string } | undefined {
+  const kmsServerURL = process.env.KMS_SERVER_URL?.trim()
+  const kmsPublicKey = process.env.KMS_PUBLIC_KEY?.trim()
+  if (kmsServerURL && kmsPublicKey) {
+    return { kmsServerURL, kmsPublicKey, audience: 'llm-proxy' }
+  }
+  return undefined
 }
