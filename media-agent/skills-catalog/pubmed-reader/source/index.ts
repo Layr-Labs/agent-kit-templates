@@ -5,10 +5,21 @@ const EUTILS_BASE = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils'
 const PMC_OA_BASE = 'https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi'
 const UA = 'media-agent-pubmed-reader/1.0'
 
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+}
+
 function extractTag(xml: string, tag: string): string {
   const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')
   const match = xml.match(regex)
-  return match ? match[1].trim() : ''
+  return match ? decodeXmlEntities(match[1].trim()) : ''
 }
 
 function extractAllTags(xml: string, tag: string): string[] {
@@ -20,7 +31,12 @@ function extractAllTags(xml: string, tag: string): string[] {
 }
 
 function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function parseArticle(articleXml: string): {
@@ -130,15 +146,17 @@ const skill = {
             retmode: 'json',
           })
           const summaryRes = await fetch(`${EUTILS_BASE}/esummary.fcgi?${summaryParams}`, { headers: { 'User-Agent': UA } })
-          const summaryData = await summaryRes.json() as { result: Record<string, any> }
+          // PubMed occasionally returns JSON with control characters — strip them before parsing
+          const summaryText = (await summaryRes.text()).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+          const summaryData = JSON.parse(summaryText) as { result: Record<string, any> }
 
           const results = ids.map(id => {
             const doc = summaryData.result?.[id]
             if (!doc) return { pmid: id, title: '', authors: [], source: '', pubDate: '' }
             return {
               pmid: id,
-              title: doc.title ?? '',
-              authors: (doc.authors ?? []).map((a: any) => a.name),
+              title: decodeXmlEntities(doc.title ?? ''),
+              authors: (doc.authors ?? []).map((a: any) => decodeXmlEntities(a.name)),
               source: doc.source ?? '',
               pubDate: doc.pubdate ?? '',
               doi: doc.elocationid ?? null,

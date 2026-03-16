@@ -57,16 +57,21 @@ interface EFTSSearchResult {
   hits: {
     hits: Array<{
       _id: string
+      _score: number
       _source: {
         file_date: string
-        display_date_filed: string
-        entity_name: string
-        file_num: string
-        form_type: string
+        display_names: string[]
+        ciks: string[]
+        file_num: string[]
+        form: string
+        root_forms: string[]
         file_description?: string
-        period_of_report?: string
-        biz_locations?: string
-        inc_states?: string
+        file_type?: string
+        period_ending?: string
+        biz_locations?: string[]
+        sics?: string[]
+        adsh: string
+        sequence?: string
       }
     }>
     total: { value: number }
@@ -139,15 +144,21 @@ const skill = {
             totalHits: data.hits.total.value,
             results: data.hits.hits.map(hit => {
               const src = hit._source
+              const cik = src.ciks?.[0] ?? ''
+              const displayName = src.display_names?.[0] ?? ''
+              const accession = src.adsh ?? hit._id.split(':')[0]
               return {
-                accessionNumber: hit._id,
-                entityName: src.entity_name,
-                formType: src.form_type,
-                filingDate: src.display_date_filed ?? src.file_date,
-                periodOfReport: src.period_of_report ?? null,
+                accessionNumber: accession,
+                entityName: displayName,
+                formType: src.form ?? src.root_forms?.[0] ?? '',
+                fileType: src.file_type ?? null,
+                filingDate: src.file_date,
+                periodEnding: src.period_ending ?? null,
                 description: src.file_description ?? null,
-                fileNumber: src.file_num,
-                url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=${src.file_num}&type=${src.form_type}&dateb=&owner=include&count=10`,
+                cik,
+                fileNumber: src.file_num?.[0] ?? null,
+                location: src.biz_locations?.[0] ?? null,
+                url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=${src.form ?? ''}&dateb=&owner=include&count=10`,
               }
             }),
           }
