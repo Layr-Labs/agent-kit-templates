@@ -8,7 +8,8 @@ const skill: Skill = {
   category: 'pipeline',
   toolScope: [
     'get_inbox', 'get_unread_count', 'get_activity',
-    'get_comment', 'react_to_comment', 'restack_post',
+    'get_comment', 'react_to_comment', 'reply_to_comment',
+    'comment_on_post', 'restack_post',
     'delete_comment', 'post_note',
   ],
 
