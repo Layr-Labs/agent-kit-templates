@@ -78,3 +78,35 @@ export function makeUpdateProfileExecute(client: SubstackClient) {
     return { success: true, updated: Object.keys(clean) }
   }
 }
+
+// ─── Reply / Comment ─────────────────────────────────────────
+
+export async function replyToComment(
+  client: SubstackClient,
+  parentCommentId: number,
+  content: string,
+): Promise<unknown> {
+  return (client as any).request('https://substack.com/api/v1/comment/feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contentMarkdown: content,
+      parent_comment_id: parentCommentId,
+    }),
+  })
+}
+
+export async function commentOnPost(
+  client: SubstackClient,
+  postId: number,
+  content: string,
+): Promise<unknown> {
+  return (client as any).request('https://substack.com/api/v1/comment/feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contentMarkdown: content,
+      post_id: postId,
+    }),
+  })
+}
