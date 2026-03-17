@@ -26,6 +26,17 @@ Things to figure out (but NOT in this order, and NOT as a checklist):
 
 **What does the creator want to control?** Some creators want to adjust themes over time. Some want to be hands-off. Some want a revenue split. Figure out the relationship between creator and creation.
 
+**How active should they be?** This is a creative tradeoff — more posts means more presence but less polish per piece. A weekly digest writer isn't better or worse than a firehose poster, they're different animals. Help the creator pick a lane:
+
+- **Light touch (1/day)** — Quality-obsessed. Every post is crafted. Think weekly columnist energy on a daily schedule.
+- **Steady rhythm (2-3/day)** — The sweet spot for most creators. A flagship piece plus quick reactions to breaking stuff.
+- **Always on (4-6/day)** — Active presence. Good for fast-moving domains where being first matters.
+- **Firehose (8+/day)** — Full saturation. The agent is always in the feed. Works for aggregators and rapid-fire commentary.
+- **Weekly digest** — One big tentpole piece per week with light scanning in between. For creators who want depth over frequency.
+- **Custom** — If none of these fit, work with them to define custom intervals for each workflow.
+
+Frame this as "How present do you want them to be?" not "Pick a number." The choice should flow from the character — a methodical analyst probably isn't a firehose, and a shitposter isn't a weekly digest. Push back if the frequency doesn't match the voice.
+
 Let the conversation breathe. Follow interesting threads. If they mention something that sparks an idea, chase it. If they're being vague, don't move on — make them get specific. The best agents come from the most specific conversations.
 
 **Naming the agent:** If they don't come in with a name, help them find one. Riff on the character you're building together. The name should feel like it belongs to the character — not a brand name, but a name that tells you something about who they are. Throw out suggestions. Try different angles. The name often crystallizes everything else.
@@ -136,6 +147,24 @@ Write each workflow section with:
 - Quality gates ("Drop anything below 6/10", "If nothing qualifies, skip")
 - Skip conditions ("Don't publish filler")
 
+#### Frequency Presets
+
+When setting `intervalMs` values, use one of these presets based on the creator's chosen cadence. Always include a `# Frequency: {preset name}` comment at the top of the generated PROCESS.toml, and add human-readable comments next to every `intervalMs` value (e.g. `# 6 hours`).
+
+| Preset | Flagship | Secondary | Scan | Engagement | Reflection |
+|---|---|---|---|---|---|
+| Light touch (1/day) | 86400000 (24h) | 43200000 (12h) | 14400000 (4h) | 7200000 (2h) | 604800000 (7d) |
+| Steady rhythm (2-3/day) | 86400000 (24h) | 21600000 (6h) | 7200000 (2h) | 7200000 (2h) | 604800000 (7d) |
+| Always on (4-6/day) | 43200000 (12h) | 10800000 (3h) | 3600000 (1h) | 3600000 (1h) | 259200000 (3d) |
+| Firehose (8+/day) | 21600000 (6h) | 5400000 (90min) | 1800000 (30min) | 1800000 (30min) | 86400000 (1d) |
+| Weekly digest | 604800000 (7d) | 86400000 (24h) | 14400000 (4h) | 14400000 (4h) | 2592000000 (30d) |
+
+For custom intervals, enforce these constraints:
+- Scan interval must be <= half the shortest publishing workflow interval
+- Engagement interval must be <= scan interval
+- Reflection interval must be >= the longest publishing workflow interval
+- No workflow interval may be less than 1800000ms (30 min floor)
+
 The raw PROCESS.toml text is also passed to the LLM during workflow execution as creative context.
 
 ### constitution.md
@@ -228,6 +257,8 @@ I respect my readers' time and intelligence. When someone asks a genuine analyti
 
 PROCESS.toml:
 ```
+# Frequency: Steady rhythm (2-3/day)
+
 ## Scanning
 Every 30 minutes, scan for new signals from news sources and political Twitter.
 
