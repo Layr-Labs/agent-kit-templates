@@ -26,6 +26,7 @@ export interface BrowserLoginOptions {
   browser?: BrowserLike
   task?: string
   maxSteps?: number
+  extraTools?: Record<string, any>
 }
 
 export interface BrowserLoginResult extends BrowserTaskResult {
