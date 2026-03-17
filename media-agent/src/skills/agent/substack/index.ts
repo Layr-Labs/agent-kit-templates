@@ -2,7 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { SubstackClient } from 'substack-skill'
-import { buildPostBody, uploadAndAttachImage, makeUpdatePublicationExecute, makeUpdateProfileExecute } from '../../../platform/substack/helpers.js'
+import { buildPostBody, uploadAndAttachImage, makeUpdatePublicationExecute, makeUpdateProfileExecute, replyToComment, commentOnPost } from '../../../platform/substack/helpers.js'
 import { trackPost } from './tracking.js'
 
 const skill: Skill = {
@@ -317,6 +317,44 @@ const skill: Skill = {
         execute: async ({ comment_id }) => {
           await client.reactToComment(comment_id)
           return { success: true }
+        },
+      }),
+
+      reply_to_comment: tool({
+        description: 'Reply to a comment or note with markdown text.',
+        inputSchema: z.object({
+          comment_id: z.number().describe('Comment ID to reply to'),
+          content: z.string().describe('Reply content in markdown'),
+        }),
+        execute: async ({ comment_id, content }) => {
+          const result = await replyToComment(client, comment_id, content)
+
+          trackPost(ctx, {
+            platformId: (result as any)?.id?.toString() ?? Date.now().toString(),
+            text: content.slice(0, 280),
+            type: 'engagement',
+          })
+
+          return result
+        },
+      }),
+
+      comment_on_post: tool({
+        description: 'Post a top-level comment on a published article.',
+        inputSchema: z.object({
+          post_id: z.number().describe('Post ID to comment on'),
+          content: z.string().describe('Comment content in markdown'),
+        }),
+        execute: async ({ post_id, content }) => {
+          const result = await commentOnPost(client, post_id, content)
+
+          trackPost(ctx, {
+            platformId: (result as any)?.id?.toString() ?? Date.now().toString(),
+            text: content.slice(0, 280),
+            type: 'engagement',
+          })
+
+          return result
         },
       }),
 

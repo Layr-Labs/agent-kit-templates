@@ -6,11 +6,14 @@ import type { Config } from '../../config/index.js'
 import type { AgentIdentity } from '../../types.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { generateTrackedText } from '../../ai/tracking.js'
+import { replyToComment } from './helpers.js'
 
 const engagementDecisionSchema = z.object({
   actions: z.array(z.object({
     commentId: z.number(),
     shouldReact: z.boolean(),
+    shouldReply: z.boolean(),
+    replyDraft: z.string().optional(),
     reason: z.string(),
   })),
 })
@@ -64,10 +67,10 @@ export class SubstackEngagement {
         modelId: this.config.modelId('engagement'),
         model: this.config.model('engagement'),
         output: Output.object({ schema: engagementDecisionSchema }),
-        system: `${this.personaPrompt}\n\n<engagement_task platform="substack">\n  <task>Decide which comments to react to (heart).</task>\n  <react_to>Thoughtful comments, genuine questions, and interesting perspectives.</react_to>\n  <skip>Spam, generic praise, or low-effort comments.</skip>\n</engagement_task>`,
+        system: `${this.personaPrompt}\n\n<engagement_task platform="substack">\n  <task>Decide how to engage with each comment — react (heart), reply, both, or skip.</task>\n  <react_to>Thoughtful comments, genuine questions, and interesting perspectives.</react_to>\n  <reply_to>Comments that ask a direct question, raise an interesting point worth expanding on, or where a substantive reply would add value. Write the reply draft in your voice.</reply_to>\n  <skip>Spam, generic praise, or low-effort comments.</skip>\n</engagement_task>`,
         prompt: `<recent_activity>\n${commentItems.map((item: any) =>
           `  <item id="${item.comment_id ?? item.id}" author="${item.author_name ?? item.user_name ?? 'Unknown'}" type="${item.type ?? 'comment'}">${item.body_text ?? item.summary ?? item.body ?? ''}</item>`
-        ).join('\n')}\n</recent_activity>\n\nWhich should I react to?`,
+        ).join('\n')}\n</recent_activity>\n\nHow should I engage with each comment?`,
       })
 
       if (!object) return
@@ -84,6 +87,20 @@ export class SubstackEngagement {
             })
           } catch (err) {
             this.events.monologue(`Failed to react to comment ${action.commentId}: ${(err as Error).message}`)
+          }
+        }
+
+        if (action.shouldReply && action.replyDraft && action.commentId) {
+          try {
+            await replyToComment(this.client, action.commentId, action.replyDraft)
+            this.events.emit({
+              type: 'engage',
+              targetId: String(action.commentId),
+              text: action.replyDraft.slice(0, 280),
+              ts: Date.now(),
+            })
+          } catch (err) {
+            this.events.monologue(`Failed to reply to comment ${action.commentId}: ${(err as Error).message}`)
           }
         }
       }
