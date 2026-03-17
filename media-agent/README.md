@@ -27,7 +27,7 @@ The system reads this and compiles it into scheduled workflows. The agent execut
 ### `constitution.md` — Governance rules
 The **only immutable file**. The agent cannot change this without creator consent.
 
-- Sovereignty declaration
+- Autonomy declaration
 - Upgrade rules
 - Financial commitments (creator dividends)
 - Security restrictions
