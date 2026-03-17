@@ -5,7 +5,9 @@ import { join } from 'path'
 import type { CookieEntry } from 'substack-skill'
 import {
   authenticateVerifiedSession,
+  loginViaBrowserAutopilotFallback,
   reuseBrowserAuthenticatedSession,
+  retryBrowserLoginWithFreshSession,
   resolveCdpJsonEndpoint,
   selectCdpTarget,
   type CdpBrowserTarget,
@@ -178,5 +180,112 @@ describe('Substack init helpers', () => {
 
     expect(result).toBeNull()
     expect(client.authenticate).not.toHaveBeenCalled()
+  })
+
+  it('retries substack login with a fresh one-off browser session', async () => {
+    const freshBrowser = {
+      disconnect: mock(async () => {}),
+    }
+    const createFreshBrowser = mock(async () => freshBrowser as any)
+    const disconnectBrowser = mock(async (_browser?: any) => {})
+    const loginFn = mock(async () => ({
+      cookies: [
+        { name: 'substack.sid', value: 'fresh', domain: '.substack.com', path: '/', secure: true },
+      ],
+      email: 'old.loon@autonymlabs.org',
+    }))
+    const events = {
+      monologue: mock((_message: string) => {}),
+    }
+
+    const result = await retryBrowserLoginWithFreshSession(
+      `0x${'11'.repeat(32)}`,
+      '/tmp/substack-cookies.json',
+      events as any,
+      {
+        createFreshBrowser,
+        disconnectBrowser,
+        loginFn: loginFn as any,
+      },
+    )
+
+    expect(result).toEqual({
+      cookies: [
+        { name: 'substack.sid', value: 'fresh', domain: '.substack.com', path: '/', secure: true },
+      ],
+      email: 'old.loon@autonymlabs.org',
+    })
+    expect(createFreshBrowser).toHaveBeenCalledTimes(1)
+    expect(loginFn).toHaveBeenCalledTimes(1)
+    expect(disconnectBrowser).toHaveBeenCalledWith(freshBrowser)
+    expect(
+      events.monologue.mock.calls.some(([message]) =>
+        String(message).includes('Retrying Substack login with a fresh browser session'),
+      ),
+    ).toBe(true)
+  })
+
+  it('uses browser-autopilot as the terminal browser fallback and reuses the authenticated session', async () => {
+    const autopilotBrowser = {
+      disconnect: mock(async () => {}),
+    }
+    const createEigenMailContext = mock(async () => ({
+      email: 'old.loon@autonymlabs.org',
+      tools: {
+        wait_for_email: {},
+        read_inbox: {},
+        read_email: {},
+      },
+    }))
+    const runBrowserLoginFn = mock(async () => ({
+      success: true,
+      result: 'Logged into Substack through the browser.',
+      browser: autopilotBrowser as any,
+      loginMethod: 'x11' as const,
+    }))
+    const disconnectBrowserFn = mock(async (_browser?: any) => {})
+    const reuseSessionFn = mock(async () => [
+      { name: 'substack.sid', value: 'autopilot', domain: '.substack.com', path: '/', secure: true },
+    ])
+    const events = {
+      monologue: mock((_message: string) => {}),
+    }
+
+    const result = await loginViaBrowserAutopilotFallback(
+      `0x${'22'.repeat(32)}`,
+      '/tmp/substack-cookies.json',
+      events as any,
+      undefined,
+      {
+        createEigenMailContext,
+        runBrowserLoginFn,
+        disconnectBrowserFn,
+        reuseSessionFn: reuseSessionFn as any,
+      },
+    )
+
+    expect(result).toEqual({
+      cookies: [
+        { name: 'substack.sid', value: 'autopilot', domain: '.substack.com', path: '/', secure: true },
+      ],
+      email: 'old.loon@autonymlabs.org',
+    })
+    expect(runBrowserLoginFn).toHaveBeenCalledTimes(1)
+    expect(runBrowserLoginFn.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'Substack',
+      loginUrl: 'https://substack.com/sign-in?next=%2F',
+      successUrlContains: 'substack.com',
+      credentials: {
+        username: 'old.loon@autonymlabs.org',
+        email: 'old.loon@autonymlabs.org',
+      },
+    })
+    expect(reuseSessionFn).toHaveBeenCalledTimes(1)
+    expect(disconnectBrowserFn).toHaveBeenCalledWith(autopilotBrowser)
+    expect(
+      events.monologue.mock.calls.some(([message]) =>
+        String(message).includes('browser-autopilot completed using x11 mode'),
+      ),
+    ).toBe(true)
   })
 })

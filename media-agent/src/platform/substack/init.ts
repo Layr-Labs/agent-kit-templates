@@ -921,12 +921,272 @@ async function loginViaBrowser(
   return { cookies, email }
 }
 
+async function createEigenMailBrowserFallbackContext(privateKey: `0x${string}`): Promise<{
+  email: string
+  tools: Record<string, any>
+}> {
+  const { EigenMailClient } = await import('eigenmail-sdk')
+  const mail = new EigenMailClient({ privateKey })
+  const loginResult = await mail.login()
+  const email = loginResult.email ?? (await mail.me()).email
+
+  const summarizeEmail = (message: {
+    subject?: string
+    from?: string
+    date?: string
+    body?: string
+    html?: string
+  }) => {
+    const body = String(message.body ?? message.html ?? '')
+    const allUrls = body.match(/https?:\/\/[^\s"<>\]]+/g) ?? []
+    const urls = allUrls.filter(url => !url.includes('/open?') && !url.includes('/o/'))
+    return {
+      subject: message.subject ?? '',
+      from: message.from ?? '',
+      date: message.date ?? '',
+      urls,
+      body: body.slice(0, 8_000),
+    }
+  }
+
+  return {
+    email,
+    tools: {
+      wait_for_email: tool({
+        description:
+          'Wait for a NEW email to arrive matching sender/subject filters. ' +
+          'Use this immediately after triggering a Substack verification email. ' +
+          'Returns the email body and extracted URLs for OTP or magic-link handling.',
+        inputSchema: z.object({
+          from: z.string().optional().describe('Filter by sender substring, e.g. "substack.com"'),
+          subject: z.string().optional().describe('Filter by subject substring'),
+          timeout_seconds: z.number().optional().describe('Maximum wait in seconds, default 120'),
+        }),
+        execute: async (params: { from?: string; subject?: string; timeout_seconds?: number }) => {
+          try {
+            const timeout = Math.max((params.timeout_seconds ?? 120) * 1000, 30_000)
+            const message = await mail.waitForEmail({
+              from: params.from,
+              subject: params.subject,
+              timeout,
+              interval: 5_000,
+            })
+            if (!message) {
+              return JSON.stringify({
+                ok: false,
+                error: 'Timed out waiting for a matching email.',
+              })
+            }
+            return JSON.stringify({
+              ok: true,
+              email: summarizeEmail(message),
+            })
+          } catch (error) {
+            return JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        },
+      }),
+      read_inbox: tool({
+        description: 'List recent EigenMail inbox messages so the browser agent can inspect Substack emails.',
+        inputSchema: z.object({
+          limit: z.number().optional().describe('Number of messages to return, default 10'),
+          query: z.string().optional().describe('Optional inbox search query'),
+        }),
+        execute: async (params: { limit?: number; query?: string }) => {
+          try {
+            const inbox = await mail.inbox({ limit: params.limit ?? 10, q: params.query })
+            return JSON.stringify({
+              ok: true,
+              messages: (inbox.messages ?? []).map((message: any) => ({
+                id: message.id,
+                subject: message.subject,
+                from: message.from,
+                date: message.date,
+              })),
+            })
+          } catch (error) {
+            return JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        },
+      }),
+      read_email: tool({
+        description: 'Read a specific EigenMail message by ID. Returns body text and extracted URLs.',
+        inputSchema: z.object({
+          id: z.string().describe('Message ID from read_inbox'),
+        }),
+        execute: async (params: { id: string }) => {
+          try {
+            const message = await mail.read(params.id)
+            return JSON.stringify({
+              ok: true,
+              email: summarizeEmail(message),
+            })
+          } catch (error) {
+            return JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        },
+      }),
+    },
+  }
+}
+
+export async function retryBrowserLoginWithFreshSession(
+  privateKey: `0x${string}`,
+  cookiesPath: string,
+  events: EventBus,
+  deps?: {
+    createFreshBrowser?: () => Promise<BrowserLike | null>
+    disconnectBrowser?: (browser?: BrowserLike | null) => Promise<void>
+    loginFn?: (
+      privateKey: `0x${string}`,
+      browser: BrowserLike,
+      cookiesPath: string,
+      events: EventBus,
+    ) => Promise<{ cookies: CookieEntry[]; email: string }>
+  },
+): Promise<{ cookies: CookieEntry[]; email: string }> {
+  events.monologue('Retrying Substack login with a fresh browser session...')
+
+  const createFreshBrowser = deps?.createFreshBrowser ?? (async () => {
+    const { createBrowser } = await import('../../browser/index.js')
+    return createBrowser({ fresh: true })
+  })
+  const disconnectFreshBrowser = deps?.disconnectBrowser ?? (async (browser?: BrowserLike | null) => {
+    const { disconnectBrowser } = await import('../../browser/index.js')
+    await disconnectBrowser(browser)
+  })
+  const loginFn = deps?.loginFn ?? loginViaBrowser
+
+  const retryBrowser = await createFreshBrowser()
+  if (!retryBrowser) {
+    throw new Error('Could not create a fresh browser session for Substack retry')
+  }
+
+  try {
+    events.monologue('Fresh browser session established. Re-running Substack email login...')
+    return await loginFn(privateKey, retryBrowser, cookiesPath, events)
+  } finally {
+    await disconnectFreshBrowser(retryBrowser)
+  }
+}
+
+export async function loginViaBrowserAutopilotFallback(
+  privateKey: `0x${string}`,
+  cookiesPath: string,
+  events: EventBus,
+  browser?: BrowserLike,
+  deps?: {
+    resolveEmail?: (privateKey: `0x${string}`) => Promise<string>
+    runBrowserLoginFn?: (opts: {
+      platform: string
+      loginUrl: string
+      successUrlContains: string
+      credentials: {
+        username: string
+        password: string
+        email?: string
+        totpKey?: string
+      }
+      browser?: BrowserLike
+      task?: string
+      maxSteps?: number
+      extraTools?: Record<string, any>
+    }) => Promise<{
+      success: boolean
+      result: string | null
+      browser: BrowserLike | null
+      loginMethod: 'cached' | 'cdp' | 'x11' | 'failed'
+    }>
+    disconnectBrowserFn?: (browser?: BrowserLike | null) => Promise<void>
+    reuseSessionFn?: (
+      client: Pick<SubstackClient, 'authenticate' | 'amILoggedIn'>,
+      browser: BrowserLike,
+      cookiesPath: string,
+      events: EventBus,
+    ) => Promise<CookieEntry[] | null>
+    createEigenMailContext?: (privateKey: `0x${string}`) => Promise<{ email: string; tools: Record<string, any> }>
+  },
+): Promise<{ cookies: CookieEntry[]; email: string }> {
+  const createEigenMailContext = deps?.createEigenMailContext ?? createEigenMailBrowserFallbackContext
+  const runBrowserLoginFn = deps?.runBrowserLoginFn ?? (async (opts) => {
+    const { runBrowserLogin } = await import('../../browser/index.js')
+    return runBrowserLogin(opts)
+  })
+  const disconnectBrowserFn = deps?.disconnectBrowserFn ?? (async (activeBrowser?: BrowserLike | null) => {
+    const { disconnectBrowser } = await import('../../browser/index.js')
+    await disconnectBrowser(activeBrowser)
+  })
+  const reuseSessionFn = deps?.reuseSessionFn ?? reuseBrowserAuthenticatedSession
+
+  const { email, tools } = await createEigenMailContext(privateKey)
+  events.monologue(`Launching browser-autopilot Substack fallback for ${email}...`)
+
+  const autopilot = await runBrowserLoginFn({
+    platform: 'Substack',
+    loginUrl: 'https://substack.com/sign-in?next=%2F',
+    successUrlContains: 'substack.com',
+    credentials: {
+      username: email,
+      password: '',
+      email,
+      totpKey: '',
+    },
+    browser,
+    task: [
+      'Use the browser to sign into Substack with the provided email address.',
+      'If the account does not exist, create it using the email flow.',
+      'If prompted for email, enter the provided email address.',
+      'If prompted to check email, use wait_for_email first, then use read_inbox/read_email as needed.',
+      'If an email contains a magic or verification link, open it in the browser.',
+      'If an email contains a verification code, enter it into the browser form.',
+      'Finish on an authenticated Substack page where the user is signed in.',
+    ].join(' '),
+    maxSteps: 60,
+    extraTools: tools,
+  })
+
+  if (!autopilot.success || !autopilot.browser) {
+    throw new Error(
+      `browser-autopilot could not authenticate Substack${autopilot.result ? `: ${autopilot.result}` : ''}`,
+    )
+  }
+
+  events.monologue(`browser-autopilot completed using ${autopilot.loginMethod} mode. Verifying authenticated Substack session...`)
+
+  try {
+    const cookies = await reuseSessionFn(
+      new SubstackClient(),
+      autopilot.browser,
+      cookiesPath,
+      events,
+    )
+
+    if (!cookies) {
+      throw new Error('browser-autopilot completed but no authenticated Substack session was detected')
+    }
+
+    return { cookies, email }
+  } finally {
+    await disconnectBrowserFn(autopilot.browser)
+  }
+}
+
 /**
  * Initialize an authenticated SubstackClient.
  *
  * 1. Try restoring session from saved cookies
- * 2. If expired/missing, warm up Cloudflare via browser, then login via OTP API
- * 3. Falls back to direct API login if no browser is available
+ * 2. If expired/missing, warm up Cloudflare via browser, retry once with a
+ *    fresh browser session, then use browser-autopilot as the last browser recourse.
+ * 3. Falls back to direct API login only when no browser is available
  */
 export async function initSubstackClient(
   mnemonic: string,
@@ -964,19 +1224,26 @@ export async function initSubstackClient(
       return client
     } catch (error) {
       events.monologue(`Browser-based Substack login failed: ${error instanceof Error ? error.message : String(error)}`)
-      events.monologue('Falling back to direct Substack API login...')
+      let retryError: unknown
       try {
-        const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
+        const { cookies, email } = await retryBrowserLoginWithFreshSession(privateKey, cookiesPath, events)
         events.monologue(`Logged into Substack as ${email}`)
         await authenticateVerifiedSession(client, cookies)
         return client
-      } catch (fallbackError) {
-        const fallbackHint = describeDirectFallbackIssue(fallbackError)
-        if (fallbackHint) {
-          events.monologue(fallbackHint)
-        }
+      } catch (freshBrowserError) {
+        retryError = freshBrowserError
+        events.monologue(`Fresh-browser Substack retry failed: ${retryError instanceof Error ? retryError.message : String(retryError)}`)
+      }
+      try {
+        const { cookies, email } = await loginViaBrowserAutopilotFallback(privateKey, cookiesPath, events, browser)
+        events.monologue(`Logged into Substack as ${email}`)
+        await authenticateVerifiedSession(client, cookies)
+        return client
+      } catch (autopilotError) {
         throw new Error(
-          `Substack login failed. Browser flow: ${error instanceof Error ? error.message : String(error)}. Direct fallback: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+          `Substack login failed. Browser flow: ${error instanceof Error ? error.message : String(error)}. ` +
+          `Fresh browser retry: ${typeof retryError !== 'undefined' ? (retryError instanceof Error ? retryError.message : String(retryError)) : 'not attempted'}. ` +
+          `browser-autopilot fallback: ${autopilotError instanceof Error ? autopilotError.message : String(autopilotError)}`,
         )
       }
     }
@@ -1018,17 +1285,19 @@ export async function refreshSession(
         events.monologue(`Re-authenticated as ${email}`)
       } catch (error) {
         events.monologue(`Browser re-authentication failed: ${error instanceof Error ? error.message : String(error)}`)
-        events.monologue('Falling back to direct Substack API re-authentication...')
         try {
-          const { cookies, email } = await loginViaDirectApi(privateKey, cookiesPath)
+          const { cookies, email } = await retryBrowserLoginWithFreshSession(privateKey, cookiesPath, events)
           await authenticateVerifiedSession(client, cookies)
           events.monologue(`Re-authenticated as ${email}`)
-        } catch (fallbackError) {
-          const fallbackHint = describeDirectFallbackIssue(fallbackError)
-          if (fallbackHint) {
-            events.monologue(fallbackHint)
+        } catch (retryError) {
+          events.monologue(`Fresh-browser Substack re-authentication retry failed: ${retryError instanceof Error ? retryError.message : String(retryError)}`)
+          try {
+            const { cookies, email } = await loginViaBrowserAutopilotFallback(privateKey, cookiesPath, events, browser)
+            await authenticateVerifiedSession(client, cookies)
+            events.monologue(`Re-authenticated as ${email}`)
+          } catch (autopilotError) {
+            throw autopilotError
           }
-          throw fallbackError
         }
       }
     } else {

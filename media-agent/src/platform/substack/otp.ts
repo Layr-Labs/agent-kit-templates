@@ -214,7 +214,7 @@ export async function extractSubstackOtpCandidates(
         events.monologue(`OTP extractor summary: ${output.summary.slice(0, 180)}`)
       }
 
-      const loginLinks = output?.loginLinks?.filter(link => link.url && link.label) ?? []
+      const loginLinks = output?.loginLinks?.filter((link: LoginLink) => link.url && link.label) ?? []
 
       if (output?.noOtpRequired && candidates.length === 0) {
         events.monologue(`OTP extractor says no OTP required: ${output.noOtpReason ?? 'unknown reason'}${loginLinks.length > 0 ? ` | ${loginLinks.length} login link(s) found` : ''}`)

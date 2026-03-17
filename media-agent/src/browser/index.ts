@@ -105,10 +105,15 @@ function stopChromeOnDebugPort(): void {
   } catch {}
 }
 
-export async function createBrowser(): Promise<BrowserLike | null> {
+export async function createBrowser(opts?: { fresh?: boolean }): Promise<BrowserLike | null> {
   if (process.env.BROWSER_DISABLED === 'true') {
     console.log('Browser disabled via BROWSER_DISABLED=true')
     return null
+  }
+
+  if (opts?.fresh) {
+    stopChromeOnDebugPort()
+    await waitForChromeShutdown()
   }
 
   if (!isChromeRunning()) {
@@ -224,6 +229,7 @@ export async function runBrowserLogin(opts: BrowserLoginOptions): Promise<Browse
     browser,
     task = `Confirm you are logged into ${platform} and describe the authenticated home or dashboard page.`,
     maxSteps = 40,
+    extraTools = {},
   } = opts
 
   await disconnectBrowser(browser)
@@ -242,6 +248,7 @@ export async function runBrowserLogin(opts: BrowserLoginOptions): Promise<Browse
     successUrlContains,
     task,
     maxSteps,
+    extraTools,
     keepBrowser: true,
     model: BROWSER_MODEL,
   })
