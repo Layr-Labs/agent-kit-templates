@@ -278,6 +278,87 @@ describe('EigenGatewayLanguageModel', () => {
       expect(body.stream).toBe(false);
     });
 
+    it('should not send response_format but inject schema into system prompt', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(mockResponse({
+        id: 'chatcmpl-rf',
+        model: 'test-model',
+        choices: [{ message: { content: '{"name":"test"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }));
+
+      const schema = { type: 'object', properties: { name: { type: 'string' } } };
+      const model = createModel(fetchFn);
+      await model.doGenerate({
+        ...baseCallOptions,
+        responseFormat: { type: 'json', schema },
+      });
+
+      const body = JSON.parse(fetchFn.mock.calls[0][1].body);
+      // Gateway does not support response_format
+      expect(body.response_format).toBeUndefined();
+      // Schema should be injected into a system message instead
+      const systemMsg = body.messages.find((m: any) => m.role === 'system');
+      expect(systemMsg).toBeTruthy();
+      expect(systemMsg.content).toContain(JSON.stringify(schema));
+      expect(systemMsg.content).toContain('JSON schema');
+    });
+
+    it('should append schema to existing system message', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(mockResponse({
+        id: 'chatcmpl-rf-sys',
+        model: 'test-model',
+        choices: [{ message: { content: '{"name":"test"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }));
+
+      const schema = { type: 'object', properties: { name: { type: 'string' } } };
+      const model = createModel(fetchFn);
+      await model.doGenerate({
+        prompt: [
+          { role: 'system' as const, content: 'You are helpful.' },
+          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+        ],
+        responseFormat: { type: 'json', schema },
+      } as any);
+
+      const body = JSON.parse(fetchFn.mock.calls[0][1].body);
+      const systemMsg = body.messages.find((m: any) => m.role === 'system');
+      expect(systemMsg.content).toContain('You are helpful.');
+      expect(systemMsg.content).toContain(JSON.stringify(schema));
+    });
+
+    it('should strip markdown fences from JSON responses', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(mockResponse({
+        id: 'chatcmpl-rf2',
+        model: 'test-model',
+        choices: [{ message: { content: '```json\n{"name":"test"}\n```' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }));
+
+      const model = createModel(fetchFn);
+      const result = await model.doGenerate({
+        ...baseCallOptions,
+        responseFormat: { type: 'json' },
+      });
+
+      expect(result.content).toEqual([{ type: 'text', text: '{"name":"test"}' }]);
+    });
+
+    it('should not strip fences when responseFormat is not json', async () => {
+      const fencedText = '```json\n{"name":"test"}\n```';
+      const fetchFn = vi.fn().mockResolvedValue(mockResponse({
+        id: 'chatcmpl-rf3',
+        model: 'test-model',
+        choices: [{ message: { content: fencedText }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }));
+
+      const model = createModel(fetchFn);
+      const result = await model.doGenerate(baseCallOptions);
+
+      expect(result.content).toEqual([{ type: 'text', text: fencedText }]);
+    });
+
     it('should send correct URL', async () => {
       const fetchFn = vi.fn().mockResolvedValue(mockResponse({
         id: 'chatcmpl-url',

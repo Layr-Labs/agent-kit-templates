@@ -69,13 +69,19 @@ export class EigenGatewayLanguageModel implements LanguageModelV3 {
     // Build content array from response
     const content: Array<LanguageModelV3Content> = [];
 
+    // Determine if the caller requested JSON output so we can strip
+    // markdown code fences that some models wrap around JSON responses.
+    const jsonRequested = options.responseFormat?.type === 'json';
+
     // Handle content - can be string or array of content parts
     if (choice.message?.content) {
       if (typeof choice.message.content === 'string') {
         // Simple text response
         content.push({
           type: 'text',
-          text: choice.message.content,
+          text: jsonRequested
+            ? stripMarkdownFences(choice.message.content)
+            : choice.message.content,
         });
       } else if (Array.isArray(choice.message.content)) {
         // Content array (multimodal response with text/images/files)
@@ -83,7 +89,7 @@ export class EigenGatewayLanguageModel implements LanguageModelV3 {
           if (part.type === 'text') {
             content.push({
               type: 'text',
-              text: part.text,
+              text: jsonRequested ? stripMarkdownFences(part.text) : part.text,
             });
           } else if (part.type === 'image_url' || part.type === 'image') {
             // Handle image content
@@ -443,6 +449,36 @@ export class EigenGatewayLanguageModel implements LanguageModelV3 {
     if (settings.presencePenalty != null) body.presence_penalty = settings.presencePenalty;
     if (settings.seed != null) body.seed = settings.seed;
 
+    // Handle response format (structured output / JSON mode).
+    // The Eigen gateway does not support the response_format field — it
+    // rejects both json_object and json_schema with 400 Invalid input.
+    // Instead we:
+    //  1. Inject the JSON schema into the system message so the model
+    //     knows exactly what structure to produce.
+    //  2. Strip markdown code fences from the response in doGenerate
+    //     so the AI SDK can parse the JSON cleanly.
+    if (settings.responseFormat?.type === 'json') {
+      if (settings.responseFormat.schema) {
+        const schemaInstruction = [
+          'Respond with JSON that strictly conforms to the following JSON schema:',
+          JSON.stringify(settings.responseFormat.schema),
+          'Do not include any text outside the JSON object. Do not wrap the response in markdown code fences.',
+        ].join('\n');
+
+        // Append schema instruction to the existing system message if present,
+        // otherwise prepend a new system message.
+        const systemIdx = messages.findIndex((m: any) => m.role === 'system');
+        if (systemIdx !== -1) {
+          const existing = messages[systemIdx].content;
+          messages[systemIdx].content = typeof existing === 'string'
+            ? `${existing}\n\n${schemaInstruction}`
+            : `${schemaInstruction}`;
+        } else {
+          messages.unshift({ role: 'system', content: schemaInstruction });
+        }
+      }
+    }
+
     // Handle tools
     if (settings.tools && settings.tools.length > 0) {
       body.tools = settings.tools.map((tool: any) => ({
@@ -513,4 +549,15 @@ export class EigenGatewayLanguageModel implements LanguageModelV3 {
 
     return content;
   }
+}
+
+/**
+ * Strip markdown code fences (e.g. ```json ... ```) that models sometimes
+ * wrap around JSON output. Only strips if the entire string is a single
+ * fenced block so we don't mangle legitimate text responses.
+ */
+function stripMarkdownFences(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:\w*)\s*\n?([\s\S]*?)\n?\s*```$/);
+  return match ? match[1].trim() : text;
 }
