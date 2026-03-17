@@ -14,15 +14,20 @@ import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
 import {
   collectRegexOtpCandidates,
+  describeOtpCandidates,
   extractSubstackOtpCandidates,
   findOtpCodesInText,
   maskOtpCode,
   type OtpCandidate,
+  type OtpAttemptFeedback,
+  type OtpEmailInput,
 } from './otp.js'
 
 const SUBSTACK_BASE = 'https://substack.com'
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
 const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
+const MAX_BROWSER_OTP_ATTEMPTS = 6
+const MAX_BROWSER_OTP_REFINEMENTS = 2
 
 export interface CdpBrowserTarget {
   type?: string
@@ -414,6 +419,43 @@ export async function authenticateVerifiedSession(
   }
 }
 
+export async function reuseBrowserAuthenticatedSession(
+  client: Pick<SubstackClient, 'authenticate' | 'amILoggedIn'>,
+  browser: BrowserLike,
+  cookiesPath: string,
+  events: EventBus,
+): Promise<CookieEntry[] | null> {
+  events.monologue('Checking whether Substack already has an authenticated browser session...')
+
+  const profileResult = await browserJsonRequest<any>(browser, `${SUBSTACK_BASE}/api/v1/user/profile`)
+  if (!profileResult.ok) {
+    logSubstackLoginDebug(
+      events,
+      `Browser auth probe found no active Substack session | ${summarizeBrowserFetchFailure('user-profile', profileResult)}`,
+    )
+    return null
+  }
+
+  const cookies = await extractBrowserSessionCookies(browser, events)
+  if (cookies.length === 0) {
+    throw new Error('Browser session looks authenticated, but no Substack cookies could be extracted.')
+  }
+
+  await authenticateVerifiedSession(client, cookies)
+  await saveCookies(cookiesPath, cookies)
+
+  const handle = String(
+    profileResult.json?.handle ??
+    profileResult.json?.profile?.handle ??
+    '',
+  ).trim()
+  events.monologue(
+    `Browser already authenticated with Substack${handle ? ` (@${handle})` : ''}; skipping OTP login.`,
+  )
+
+  return cookies
+}
+
 async function getFreshSelf(client: SubstackClient): Promise<any> {
   return client.refreshSelf()
 }
@@ -613,6 +655,16 @@ async function loginViaBrowser(
   await browser.navigate('https://substack.com')
   await browser.waitMs(5000)
 
+  const existingBrowserSessionCookies = await reuseBrowserAuthenticatedSession(
+    new SubstackClient(),
+    browser,
+    cookiesPath,
+    events,
+  )
+  if (existingBrowserSessionCookies) {
+    return { cookies: existingBrowserSessionCookies, email }
+  }
+
   // Snapshot existing inbox state before requesting a new OTP so we do not
   // accidentally classify the fresh verification email as stale.
   const preExistingIds = new Set<string>()
@@ -690,6 +742,7 @@ async function loginViaBrowser(
   events.monologue(`Waiting for OTP email... (${preExistingIds.size} pre-existing messages to skip)`)
 
   let otpCandidates: OtpCandidate[] = []
+  let otpEmailForCandidates: OtpEmailInput | null = null
   let lastInboxSummary = 'no inbox poll completed'
   const inspectedMessageIds = new Set<string>()
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -723,6 +776,7 @@ async function loginViaBrowser(
           )
           otpCandidates = await extractSubstackOtpCandidates(otpEmail, events)
           if (otpCandidates.length > 0) {
+            otpEmailForCandidates = otpEmail
             break
           }
           logSubstackLoginDebug(events, `No OTP candidates extracted from message | ${summarizeInboxMessageForDebug(full ?? msg)}`)
@@ -746,27 +800,57 @@ async function loginViaBrowser(
 
   // Step 3: Complete login with OTP — runs inside browser
   const completionFailures: string[] = []
+  const attemptedFeedback: OtpAttemptFeedback[] = []
+  const queuedCandidates = [...otpCandidates]
+  const queuedCodes = new Set(queuedCandidates.map(candidate => candidate.code))
   let loginCompleted = false
+  let refinementCount = 0
+  let attemptsMade = 0
 
-  for (let index = 0; index < otpCandidates.length; index++) {
-    const candidate = otpCandidates[index]
-    events.monologue(`Submitting OTP candidate ${index + 1}/${otpCandidates.length} (${maskOtpCode(candidate.code)} from ${candidate.source})...`)
+  for (let index = 0; index < queuedCandidates.length && attemptsMade < MAX_BROWSER_OTP_ATTEMPTS; index++) {
+    const candidate = queuedCandidates[index]
+    attemptsMade += 1
+    events.monologue(`Submitting OTP candidate ${attemptsMade}/${Math.min(queuedCandidates.length, MAX_BROWSER_OTP_ATTEMPTS)} (${maskOtpCode(candidate.code)} from ${candidate.source})...`)
     const completeParsed = await completeOtpLoginInBrowser(browser, email, candidate.code)
 
     if (completeParsed.ok) {
-      events.monologue(`OTP candidate ${index + 1}/${otpCandidates.length} accepted by Substack.`)
+      events.monologue(`OTP candidate ${attemptsMade} accepted by Substack.`)
       loginCompleted = true
       break
     }
 
     const failureSummary = summarizeLoginCompletionFailure(candidate, completeParsed)
     completionFailures.push(failureSummary)
-    events.monologue(`Login completion attempt ${index + 1} failed: ${failureSummary}`)
+    attemptedFeedback.push({
+      code: candidate.code,
+      source: candidate.source,
+      failure: failureSummary,
+    })
+    events.monologue(`Login completion attempt ${attemptsMade} failed: ${failureSummary}`)
+
+    if (otpEmailForCandidates && refinementCount < MAX_BROWSER_OTP_REFINEMENTS) {
+      refinementCount += 1
+      events.monologue(`Substack rejected ${maskOtpCode(candidate.code)}. Re-evaluating the OTP email with failure context...`)
+      const refinedCandidates = await extractSubstackOtpCandidates(
+        otpEmailForCandidates,
+        events,
+        { attemptFeedback: attemptedFeedback },
+      )
+      const newCandidates = refinedCandidates.filter(refined => !queuedCodes.has(refined.code))
+      if (newCandidates.length > 0) {
+        newCandidates.forEach(refined => queuedCodes.add(refined.code))
+        queuedCandidates.push(...newCandidates)
+        events.monologue(`OTP retry analysis proposed ${newCandidates.length} additional candidate(s): ${describeOtpCandidates(newCandidates)}`)
+      } else {
+        events.monologue('OTP retry analysis found no new OTP candidates after the rejection.')
+      }
+    }
+
     await browser.waitMs(1000)
   }
 
   if (!loginCompleted) {
-    throw new Error(`email-otp-login/complete failed after ${otpCandidates.length} attempt(s): ${completionFailures.join(' || ')}`)
+    throw new Error(`email-otp-login/complete failed after ${attemptsMade} attempt(s): ${completionFailures.join(' || ')}`)
   }
 
   // Wait for cookies to settle
@@ -958,7 +1042,7 @@ export async function setupPublication(
     try {
       const publication = await client.ensurePublication({ name: publicationName })
       self = await getFreshSelf(client)
-      events.monologue(`Publication created: ${publication.subdomain}`)
+      events.monologue(`Publication created: ${formatPublicationAddress(publication.subdomain)}`)
     } catch (error) {
       ensurePublicationError = error instanceof Error ? error : new Error(String(error))
       events.monologue(`SDK publication bootstrap failed: ${ensurePublicationError.message.slice(0, 180)}`)
@@ -967,7 +1051,7 @@ export async function setupPublication(
     if (!self.primaryPublication && browser) {
       try {
         self = await initializePublicationViaBrowser(client, browser, identity, events)
-        events.monologue(`Publication created: ${self.primaryPublication?.subdomain}`)
+        events.monologue(`Publication created: ${formatPublicationAddress(self.primaryPublication?.subdomain)}`)
       } catch (error) {
         browserInitError = error instanceof Error ? error : new Error(String(error))
         events.monologue(`Browser-backed publication initialization failed: ${browserInitError.message.slice(0, 180)}`)
@@ -1067,5 +1151,15 @@ export async function setupPublication(
     maxSteps: 10,
   })
 
-  events.monologue('Publication setup complete')
+  events.monologue(
+    self.primaryPublication?.subdomain
+      ? `Publication setup complete: ${formatPublicationAddress(self.primaryPublication.subdomain)}`
+      : 'Publication setup complete'
+  )
+}
+
+function formatPublicationAddress(subdomain: string | undefined | null): string {
+  const handle = subdomain?.trim()
+  if (!handle) return "substack.com"
+  return `https://${handle}.substack.com`
 }

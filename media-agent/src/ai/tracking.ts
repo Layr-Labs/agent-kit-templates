@@ -33,6 +33,19 @@ interface CostSummaryBucket {
   avgCostUsd: number
 }
 
+interface OperationCostBucket {
+  operation: string
+  calls: number
+  failures: number
+  costUsd: number
+  marketCostUsd: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  avgDurationMs: number
+  avgCostUsd: number
+}
+
 export interface CostSummary {
   totalCalls: number
   failedCalls: number
@@ -43,6 +56,7 @@ export interface CostSummary {
   totalTokens: number
   totalCachedTokens: number
   byModel: CostSummaryBucket[]
+  byOperation: OperationCostBucket[]
   recent: CostRecord[]
 }
 
@@ -95,6 +109,7 @@ class CostTracker {
 
   getSummary(limit = 50): CostSummary {
     const byModel = new Map<string, Omit<CostSummaryBucket, 'avgCostUsd'>>()
+    const byOperation = new Map<string, Omit<OperationCostBucket, 'avgCostUsd' | 'avgDurationMs'> & { totalDurationMs: number }>()
 
     let totalCalls = 0
     let failedCalls = 0
@@ -115,7 +130,8 @@ class CostTracker {
       totalTokens += record.totalTokens ?? 0
       totalCachedTokens += record.cachedTokens ?? 0
 
-      const bucket = byModel.get(record.modelId) ?? {
+      // By model
+      const modelBucket = byModel.get(record.modelId) ?? {
         modelId: record.modelId,
         calls: 0,
         failures: 0,
@@ -126,16 +142,37 @@ class CostTracker {
         totalTokens: 0,
         cachedTokens: 0,
       }
+      modelBucket.calls += 1
+      if (!record.success) modelBucket.failures += 1
+      modelBucket.costUsd += record.costUsd ?? 0
+      modelBucket.marketCostUsd += record.marketCostUsd ?? 0
+      modelBucket.inputTokens += record.inputTokens ?? 0
+      modelBucket.outputTokens += record.outputTokens ?? 0
+      modelBucket.totalTokens += record.totalTokens ?? 0
+      modelBucket.cachedTokens += record.cachedTokens ?? 0
+      byModel.set(record.modelId, modelBucket)
 
-      bucket.calls += 1
-      if (!record.success) bucket.failures += 1
-      bucket.costUsd += record.costUsd ?? 0
-      bucket.marketCostUsd += record.marketCostUsd ?? 0
-      bucket.inputTokens += record.inputTokens ?? 0
-      bucket.outputTokens += record.outputTokens ?? 0
-      bucket.totalTokens += record.totalTokens ?? 0
-      bucket.cachedTokens += record.cachedTokens ?? 0
-      byModel.set(record.modelId, bucket)
+      // By operation (task)
+      const opBucket = byOperation.get(record.operation) ?? {
+        operation: record.operation,
+        calls: 0,
+        failures: 0,
+        costUsd: 0,
+        marketCostUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        totalDurationMs: 0,
+      }
+      opBucket.calls += 1
+      if (!record.success) opBucket.failures += 1
+      opBucket.costUsd += record.costUsd ?? 0
+      opBucket.marketCostUsd += record.marketCostUsd ?? 0
+      opBucket.inputTokens += record.inputTokens ?? 0
+      opBucket.outputTokens += record.outputTokens ?? 0
+      opBucket.totalTokens += record.totalTokens ?? 0
+      opBucket.totalDurationMs += record.durationMs ?? 0
+      byOperation.set(record.operation, opBucket)
     }
 
     return {
@@ -149,6 +186,13 @@ class CostTracker {
       totalCachedTokens,
       byModel: [...byModel.values()]
         .map(bucket => ({ ...bucket, avgCostUsd: bucket.calls > 0 ? bucket.costUsd / bucket.calls : 0 }))
+        .sort((a, b) => b.costUsd - a.costUsd),
+      byOperation: [...byOperation.values()]
+        .map(({ totalDurationMs, ...bucket }) => ({
+          ...bucket,
+          avgCostUsd: bucket.calls > 0 ? bucket.costUsd / bucket.calls : 0,
+          avgDurationMs: bucket.calls > 0 ? Math.round(totalDurationMs / bucket.calls) : 0,
+        }))
         .sort((a, b) => b.costUsd - a.costUsd),
       recent: this.records.slice(-limit).reverse(),
     }

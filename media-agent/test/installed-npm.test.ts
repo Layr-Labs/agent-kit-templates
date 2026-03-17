@@ -145,4 +145,37 @@ describe('installSkillBundle npm dependency support', () => {
     const writtenPkg = JSON.parse(await readFile(join(skillDir, 'package.json'), 'utf-8'))
     expect(writtenPkg.dependencies['is-odd']).toBe('3.0.1')
   })
+
+  it('does not execute lifecycle install scripts from package.json', async () => {
+    installedRoot = await mkdtemp(join(tmpdir(), 'media-npm-ignore-scripts-'))
+
+    const packageJson = JSON.stringify({
+      name: 'test-skill-ignore-scripts',
+      private: true,
+      scripts: {
+        postinstall: 'node -e "require(\'fs\').writeFileSync(\'postinstall-ran.txt\', \'yes\')"',
+      },
+      dependencies: {
+        'is-odd': '3.0.1',
+      },
+    })
+
+    const bundle = makeBundle({
+      name: 'test-skill',
+      files: {
+        'dist/index.mjs': SKILL_MJS,
+        'source/index.ts': 'export default {}',
+        'package.json': packageJson,
+      },
+    })
+
+    await installSkillBundle(installedRoot, bundle)
+
+    const skillDir = join(installedRoot, 'test-skill')
+    const entries = await readdir(skillDir)
+    expect(entries).not.toContain('postinstall-ran.txt')
+    const nodeModules = join(skillDir, 'node_modules')
+    const nmStat = await stat(nodeModules)
+    expect(nmStat.isDirectory()).toBe(true)
+  })
 })

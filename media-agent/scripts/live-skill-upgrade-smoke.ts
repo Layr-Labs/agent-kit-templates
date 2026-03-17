@@ -330,7 +330,10 @@ export default skill
     await Promise.race([installDone, sleep(60_000).then(() => { throw new Error('Timed out waiting for installed-skill recompile.') })])
 
     assert(recompiledAfterInstall, 'Expected the skill install to trigger recompilation.')
-    assert(recompiledAfterInstall !== baselineCompiled.sourceHash, 'Expected install to change compiled source hash.')
+    assert(
+      recompiledAfterInstall === baselineCompiled.sourceHash,
+      'Expected install to preserve the identity-only compiled source hash.',
+    )
 
     const afterInstallSkills = await (await fetch(`${baseUrl}/api/skills`)).json() as any
     assert(afterInstallSkills.activeSkills.some((skill: any) => skill.name === 'arxiv-skill'), 'Installed skill missing from active skill list.')

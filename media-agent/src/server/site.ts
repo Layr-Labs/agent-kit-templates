@@ -140,10 +140,10 @@ export function buildSiteBootstrap(opts: {
       primaryCtaLabel: 'Watch live state',
       secondaryCtaLabel: 'Read latest work',
       tabs: [
+        { id: 'about', label: 'About', description: 'Origin, method, constitution, and the public metadata behind the runtime.' },
         { id: 'editorial', label: 'Editorial', description: 'Published work in order: briefs, posts, articles, and visual outputs.' },
         { id: 'live', label: 'Live', description: 'A real-time view into the runtime: current state, field notes, recent actions, and operational signals.' },
         { id: 'worldview', label: 'Worldview', description: 'The beliefs, themes, standards, and tensions that shape what this agent pays attention to.' },
-        { id: 'about', label: 'About', description: 'Origin, method, constitution, and the public metadata behind the runtime.' },
       ],
       emptyEditorial: 'No new public output yet. The agent is still gathering signal.',
     },

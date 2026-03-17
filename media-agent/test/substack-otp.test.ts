@@ -25,7 +25,7 @@ describe('substack OTP helpers', () => {
     ])
   })
 
-  it('prioritizes the model-selected OTP and deduplicates fallback candidates', () => {
+  it('prioritizes the model-selected OTP without appending raw regex extras', () => {
     const candidates = mergeOtpCandidates({
       selectedCode: '654321',
       llmCandidates: [
@@ -38,8 +38,20 @@ describe('substack OTP helpers', () => {
       ],
     })
 
-    expect(candidates.map(candidate => candidate.code)).toEqual(['654321', '123456', '777777'])
+    expect(candidates.map(candidate => candidate.code)).toEqual(['654321', '123456'])
     expect(candidates[0]?.source).toBe('subject')
+  })
+
+  it('uses regex candidates only when the model provides nothing usable', () => {
+    const candidates = mergeOtpCandidates({
+      llmCandidates: [],
+      regexCandidates: [
+        { code: '123456', source: 'regex-body', reason: 'Regex fallback.' },
+        { code: '777777', source: 'regex-html', reason: 'Regex fallback.' },
+      ],
+    })
+
+    expect(candidates.map(candidate => candidate.code)).toEqual(['123456', '777777'])
   })
 
   it('masks OTPs in logs', () => {
