@@ -27,6 +27,7 @@ const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Appl
 const OTP_DEBUG_CODE_REGEX = /\b\d{6}\b/g
 const MAX_BROWSER_OTP_ATTEMPTS = 6
 const MAX_BROWSER_OTP_REFINEMENTS = 2
+const MAX_SUBSTACK_DISPLAY_NAME_LENGTH = 30
 
 export interface CdpBrowserTarget {
   type?: string
@@ -460,11 +461,14 @@ async function getFreshSelf(client: SubstackClient): Promise<any> {
   return client.refreshSelf()
 }
 
-function pickSubstackDisplayName(identity: AgentIdentity, currentName?: unknown): string {
+function pickSubstackDisplayName(
+  identity: AgentIdentity,
+  currentName?: unknown,
+): string {
   const candidate = [currentName, identity.name, identity.creator]
     .find(value => typeof value === 'string' && value.trim().length > 0)
 
-  const cleaned = String(candidate ?? 'Agent').replace(/\s+/g, ' ').trim().slice(0, 80)
+  const cleaned = String(candidate ?? 'Agent').replace(/\s+/g, ' ').trim()
   return cleaned || 'Agent'
 }
 
@@ -565,9 +569,10 @@ async function initializePublicationViaBrowser(
   browser: BrowserLike,
   identity: AgentIdentity,
   events: EventBus,
+  preferredName?: string,
 ): Promise<any> {
   const currentSelf = await getFreshSelf(client)
-  const displayName = pickSubstackDisplayName(identity, currentSelf?.name)
+  const displayName = pickSubstackDisplayName(identity, preferredName ?? currentSelf?.name)
 
   events.monologue('No publication found — initializing creator dashboard via browser...')
 
@@ -627,6 +632,83 @@ async function initializePublicationViaBrowser(
   }
 
   throw new Error(`personal-initialize succeeded for @${handle}, but no primaryPublication appeared in the authenticated profile`)
+}
+
+interface PublicationBootstrapAttempt {
+  self: any
+  attemptedName: string
+  ensurePublicationError: Error | null
+  browserInitError: Error | null
+}
+
+function summarizePublicationBootstrapErrors(
+  ensurePublicationError: Error | null,
+  browserInitError: Error | null,
+): string[] {
+  const failures: string[] = []
+  if (ensurePublicationError) failures.push(`sdk=${ensurePublicationError.message}`)
+  if (browserInitError) failures.push(`browser=${browserInitError.message}`)
+  return failures
+}
+
+async function attemptPublicationBootstrap(params: {
+  client: SubstackClient
+  identity: AgentIdentity
+  events: EventBus
+  browser?: BrowserLike
+  preferredName?: string
+}): Promise<PublicationBootstrapAttempt> {
+  let self = await getFreshSelf(params.client)
+  const attemptedName = pickSubstackDisplayName(params.identity, params.preferredName ?? self?.name)
+  let ensurePublicationError: Error | null = null
+  let browserInitError: Error | null = null
+
+  try {
+    const publication = await params.client.ensurePublication({ name: attemptedName })
+    self = await getFreshSelf(params.client)
+    params.events.monologue(`Publication created: ${formatPublicationAddress(publication.subdomain)}`)
+  } catch (error) {
+    ensurePublicationError = error instanceof Error ? error : new Error(String(error))
+    params.events.monologue(`SDK publication bootstrap failed: ${ensurePublicationError.message.slice(0, 180)}`)
+  }
+
+  if (!self.primaryPublication && params.browser) {
+    try {
+      self = await initializePublicationViaBrowser(
+        params.client,
+        params.browser,
+        params.identity,
+        params.events,
+        attemptedName,
+      )
+      params.events.monologue(`Publication created: ${formatPublicationAddress(self.primaryPublication?.subdomain)}`)
+    } catch (error) {
+      browserInitError = error instanceof Error ? error : new Error(String(error))
+      params.events.monologue(`Browser-backed publication initialization failed: ${browserInitError.message.slice(0, 180)}`)
+    }
+  }
+
+  return {
+    self,
+    attemptedName,
+    ensurePublicationError,
+    browserInitError,
+  }
+}
+
+function validatePublicationBootstrapName(name: string): string | null {
+  const normalized = name.replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return 'Choose a non-empty publication name before creating the Substack publication.'
+  }
+  if (normalized.length > MAX_SUBSTACK_DISPLAY_NAME_LENGTH) {
+    return `Please enter a shorter name (${MAX_SUBSTACK_DISPLAY_NAME_LENGTH} characters max). Keep the title concise and put extra identity detail into the bio or publication description.`
+  }
+  return null
+}
+
+interface SetupPublicationDependencies {
+  generateText?: typeof generateTrackedText
 }
 
 /**
@@ -1325,54 +1407,84 @@ export async function setupPublication(
   config: Config,
   events: EventBus,
   browser?: BrowserLike,
+  deps: SetupPublicationDependencies = {},
 ): Promise<void> {
   events.monologue('Checking publication setup...')
 
   let self = await getFreshSelf(client)
+  let publicationBootstrapFailures: string[] = []
+  let lastBootstrapAttemptedName: string | null = null
+  const runTrackedText = deps.generateText ?? generateTrackedText
 
-  // If no publication exists, create one
-  if (!self.primaryPublication) {
-    const publicationName = pickSubstackDisplayName(identity, self?.name)
-    let ensurePublicationError: Error | null = null
-    let browserInitError: Error | null = null
-
+  let publication: any = null
+  if (self.primaryPublication) {
     try {
-      const publication = await client.ensurePublication({ name: publicationName })
-      self = await getFreshSelf(client)
-      events.monologue(`Publication created: ${formatPublicationAddress(publication.subdomain)}`)
-    } catch (error) {
-      ensurePublicationError = error instanceof Error ? error : new Error(String(error))
-      events.monologue(`SDK publication bootstrap failed: ${ensurePublicationError.message.slice(0, 180)}`)
+      publication = await client.getPublication()
+    } catch (err) {
+      events.monologue(`Could not fetch publication: ${(err as Error).message}`)
     }
-
-    if (!self.primaryPublication && browser) {
-      try {
-        self = await initializePublicationViaBrowser(client, browser, identity, events)
-        events.monologue(`Publication created: ${formatPublicationAddress(self.primaryPublication?.subdomain)}`)
-      } catch (error) {
-        browserInitError = error instanceof Error ? error : new Error(String(error))
-        events.monologue(`Browser-backed publication initialization failed: ${browserInitError.message.slice(0, 180)}`)
-      }
-    }
-
-    if (!self.primaryPublication) {
-      if (ensurePublicationError && browserInitError) {
-        events.monologue(`Publication bootstrap failures: sdk=${ensurePublicationError.message.slice(0, 120)} | browser=${browserInitError.message.slice(0, 120)}`)
-      }
-      // Non-fatal — agent can still run without a publication, just can't publish
-      events.monologue('Continuing without publication — publishing will fail until manually set up.')
-    }
-  }
-
-  let publication: any
-  try {
-    publication = await client.getPublication()
-  } catch (err) {
-    events.monologue(`Could not fetch publication: ${(err as Error).message}`)
-    return
   }
 
   const setupTools = {
+    bootstrap_publication: tool({
+      description: 'Create or retry the Substack publication. Use this first when no publication exists, especially after bootstrap errors.',
+      inputSchema: z.object({
+        name: z.string().min(1).describe('A concise publication name, 30 characters max. Put extra identity detail into the bio or publication description.'),
+      }),
+      execute: async ({ name }: { name: string }) => {
+        const normalizedName = name.replace(/\s+/g, ' ').trim()
+        lastBootstrapAttemptedName = normalizedName
+
+        const validationError = validatePublicationBootstrapName(normalizedName)
+        if (validationError) {
+          publicationBootstrapFailures = [validationError]
+          events.monologue(`Publication bootstrap failed: ${validationError}`)
+          return {
+            success: false,
+            attemptedName: normalizedName,
+            publication: null,
+            errors: publicationBootstrapFailures,
+          }
+        }
+
+        const bootstrapAttempt = await attemptPublicationBootstrap({
+          client,
+          identity,
+          events,
+          browser,
+          preferredName: normalizedName,
+        })
+
+        self = bootstrapAttempt.self
+        lastBootstrapAttemptedName = bootstrapAttempt.attemptedName
+        publicationBootstrapFailures = summarizePublicationBootstrapErrors(
+          bootstrapAttempt.ensurePublicationError,
+          bootstrapAttempt.browserInitError,
+        )
+
+        if (!self.primaryPublication) {
+          return {
+            success: false,
+            attemptedName: bootstrapAttempt.attemptedName,
+            publication: null,
+            errors: publicationBootstrapFailures,
+          }
+        }
+
+        try {
+          publication = await client.getPublication()
+        } catch (error) {
+          publication = null
+          events.monologue(`Publication created but fetching publication metadata failed: ${(error as Error).message}`)
+        }
+
+        return {
+          success: true,
+          attemptedName: bootstrapAttempt.attemptedName,
+          publication: self.primaryPublication,
+        }
+      },
+    }),
     update_publication: tool({
       description: 'Update the Substack publication metadata (name, description, about page, etc.).',
       inputSchema: z.object({
@@ -1424,7 +1536,22 @@ export async function setupPublication(
 
   const persona = buildPersonaPrompt(identity)
 
-  await generateTrackedText({
+  const bootstrapContext = !self.primaryPublication
+    ? [
+        '<publication_bootstrap_status>',
+        'No publication exists yet.',
+        `The Substack publication title must be ${MAX_SUBSTACK_DISPLAY_NAME_LENGTH} characters or fewer.`,
+        'Choose a deliberate short publication name that captures the identity. Do not mechanically truncate the full identity name.',
+        'If the identity has multiple names, qualifiers, or parenthetical detail, move that richer context into the bio or publication description instead.',
+        lastBootstrapAttemptedName ? `Last attempted bootstrap name: ${JSON.stringify(lastBootstrapAttemptedName)}` : '',
+        publicationBootstrapFailures.length > 0
+          ? `Most recent bootstrap failures:\n${publicationBootstrapFailures.map(failure => `- ${failure}`).join('\n')}`
+          : 'No bootstrap failure was captured yet.',
+        '</publication_bootstrap_status>',
+      ].filter(Boolean).join('\n')
+    : '<publication_bootstrap_status>\nPublication already exists.\n</publication_bootstrap_status>'
+
+  await runTrackedText({
     operation: 'publication_setup',
     modelId: config.modelId('editing'),
     model: config.model('editing'),
@@ -1433,20 +1560,38 @@ export async function setupPublication(
 <publication_setup_task>
   <goal>Align the Substack publication with the agent's identity.</goal>
   <rules>
+    <rule>If there is no publication yet, call bootstrap_publication before trying publication-only tools.</rule>
     <rule>Only update fields that are missing or don't match the agent's identity.</rule>
     <rule>If the publication is already well-configured, just call setup_complete.</rule>
-    <rule>Publication name should reflect the agent's identity.</rule>
+    <rule>Publication and profile names must stay within Substack's 30 character limit.</rule>
+    <rule>Publication name should reflect the agent's identity, but if the full identity is too long, invent a concise title instead of chopping the name mid-thought.</rule>
+    <rule>Put extra names, cast details, or explanatory context into the bio and publication description rather than overloading the title.</rule>
     <rule>If the handle or subdomain are clearly generic or mismatched, align them to a short URL-safe version of the agent identity.</rule>
     <rule>Bio/description should capture the agent's voice and mission.</rule>
     <rule>Set appropriate category tags for discoverability.</rule>
     <rule>Be concise — Substack has character limits on most fields.</rule>
+    <rule>If a bootstrap or update attempt fails, use the error feedback to choose a different shorter or cleaner input rather than repeating the same request.</rule>
     <rule>Call setup_complete when done.</rule>
   </rules>
 </publication_setup_task>`,
-    prompt: `<current_profile>\n${JSON.stringify(self, null, 2)}\n</current_profile>\n\n<current_publication>\n${JSON.stringify(publication, null, 2)}\n</current_publication>`,
+    prompt: `${bootstrapContext}\n\n<current_profile>\n${JSON.stringify(self, null, 2)}\n</current_profile>\n\n<current_publication>\n${JSON.stringify(publication, null, 2)}\n</current_publication>`,
     tools: setupTools,
     maxSteps: 10,
   })
+
+  self = await getFreshSelf(client)
+  if (!self.primaryPublication) {
+    events.monologue('Publication setup ended without a publication. Publishing will remain unavailable until setup succeeds.')
+    return
+  }
+
+  if (!publication) {
+    try {
+      publication = await client.getPublication()
+    } catch (error) {
+      events.monologue(`Could not fetch publication after setup: ${(error as Error).message}`)
+    }
+  }
 
   events.monologue(
     self.primaryPublication?.subdomain
