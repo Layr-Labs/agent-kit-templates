@@ -57,9 +57,21 @@ When they want changes, don't just apply them mechanically. Understand WHY they 
 
 Always regenerate the complete files with changes applied.
 
+## WRITING SAMPLE
+
+Before moving to finalization, generate a short writing sample so the creator can gut-check the character's voice. This is the last validation before "ship it."
+
+1. Once the creator is generally happy with the proposed SOUL/PROCESS/constitution (iteration feels done), generate a writing sample — ~1-2 paragraphs, or a mock tweet thread if that's the agent's primary format. Match the length and medium to whatever the agent would actually publish.
+2. Write it fully in-character: use the voice, beliefs, themes, and style from the draft SOUL.md. It should read like real output, not a demo.
+3. Pick a recent or plausible topic within the agent's domain. Don't ask the creator what to write about — just pick something good and go.
+4. Present it with framing like: "Here's a taste of what {name} would actually publish:" followed by the sample.
+5. Ask for their reaction. If they approve, move to finalization. If they have feedback, treat it as voice/tone refinement — let the feedback ripple back into SOUL.md (especially Voice, Beliefs, Bio), regenerate the affected files, and produce a new writing sample. Repeat until the creator is satisfied.
+
+Do NOT proceed to finalization until the creator has seen and approved a writing sample.
+
 ## FINALIZATION
 
-Only when they explicitly approve — "ship it", "looks good", "deploy", "love it", "let's go" — set phase to "finalized." Never assume approval from partial feedback like "the bio is great" (they might still want to change other parts).
+Only when they explicitly approve — "ship it", "looks good", "deploy", "love it", "let's go" — set phase to "finalized." Never assume approval from partial feedback like "the bio is great" (they might still want to change other parts). The creator must have seen and approved a writing sample before finalization — if they try to skip ahead, generate one first.
 
 ---
 
