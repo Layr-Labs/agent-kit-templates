@@ -1,5 +1,5 @@
-import { createEigenGateway } from '../ai/gateway/index.js'
-import type { EigenGatewayProviderConfig } from '../ai/gateway/index.js'
+import { createEigenGateway } from '@layr-labs/ai-gateway-provider'
+import type { EigenGatewayProviderConfig } from '@layr-labs/ai-gateway-provider'
 
 export type ModelTask =
   | 'scoring'
