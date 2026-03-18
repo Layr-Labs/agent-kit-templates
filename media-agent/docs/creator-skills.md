@@ -168,11 +168,12 @@ Important implications:
 
 ## Model IDs
 
-The base runtime uses AI Gateway only.
+The base runtime routes model traffic through the LLM proxy provider.
 
-- Set `AI_GATEWAY_API_KEY` in the agent environment.
-- Use AI Gateway model IDs in `provider/model` format.
-- For Anthropic models, use the dotted gateway IDs such as `anthropic/claude-sonnet-4.6`, not raw provider aliases.
+- Set `LLM_PROXY_URL` or `EIGEN_GATEWAY_URL` in the agent environment.
+- Set `LLM_PROXY_API_KEY` for bearer auth, or use `KMS_AUTH_JWT` if that is the bearer token your proxy expects.
+- Use proxy model IDs in `provider/model` format.
+- For Anthropic models, use the dotted IDs such as `anthropic/claude-sonnet-4.6`, not raw provider aliases.
 
 ## Example Template
 
