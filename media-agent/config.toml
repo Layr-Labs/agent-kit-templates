@@ -58,6 +58,11 @@ engagement_eval_ttl_ms = 60000
 image_prompt_ttl_ms = 60000
 llm_response_ttl_ms = 60000
 
+[gateway.projects]
+"tee-compute-sepolia-dev" = "https://ai-gateway-dev.eigencloud.xyz"
+# "tee-compute-sepolia-prod" = ""
+# "tee-compute-mainnet-prod" = ""
+
 [r2]
 enabled = false
 

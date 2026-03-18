@@ -51,7 +51,7 @@ async function main() {
     const processMd = await readFile(resolve(process.cwd(), 'PROCESS.toml'), 'utf-8')
     const constitution = await readFile(resolve(process.cwd(), 'constitution.md'), 'utf-8')
 
-    const rawConfig = createConfig(resolve(process.cwd(), 'config.toml'))
+    const rawConfig = await createConfig(resolve(process.cwd(), 'config.toml'))
     const config = {
       ...rawConfig,
       platform: 'substack' as const,

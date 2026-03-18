@@ -10,7 +10,7 @@
 import { join, resolve } from 'path'
 import { readFileSync } from 'fs'
 import { mkdir } from 'fs/promises'
-import { createConfig } from './config/index.js'
+import { createConfig, type Config } from './config/index.js'
 import { createDatabase } from './db/index.js'
 import { EventBus } from './console/events.js'
 import { Cache } from './cache/cache.js'
@@ -40,7 +40,7 @@ function readFile(path: string): string {
   }
 }
 
-async function initTwitterPlatform(config: ReturnType<typeof createConfig>, events: EventBus, ctx: SkillContext): Promise<PlatformAdapter> {
+async function initTwitterPlatform(config: Config, events: EventBus, ctx: SkillContext): Promise<PlatformAdapter> {
   const { TwitterClient } = await import('./platform/twitter/client.js')
   const { TwitterV2Reader } = await import('./platform/twitter/twitterapi-v2.js')
   const { EngagementLoop } = await import('./platform/twitter/engagement.js')
@@ -114,7 +114,7 @@ async function main() {
   console.log('Agent files loaded')
 
   // 2. Init config
-  const config = createConfig()
+  const config = await createConfig()
   await mkdir(config.dataDir, { recursive: true })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   await ensureInstalledSkillsRoot(installedSkillsRoot)

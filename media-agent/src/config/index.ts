@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { parse } from 'smol-toml'
 import { resolve } from 'path'
-import { assertModelProviderConfigured, resolveModel, resolveModelId, type ModelTask } from './models.js'
+import { initModelProvider, resolveModel, resolveModelId, type ModelTask } from './models.js'
 
 interface TomlConfig {
   models: Record<string, string> & { overrides?: Record<string, string>; reasoning_effort?: string }
@@ -29,6 +29,7 @@ interface TomlConfig {
   r2: { enabled: boolean }
   twitter?: { posting_enabled: boolean; read_provider: string }
   scan: { news_ttl_ms: number; timeline_ttl_ms: number; test_mode?: { news_ttl_ms: number; timeline_ttl_ms: number } }
+  gateway?: { projects: Record<string, string> }
 }
 
 function loadToml(configPath: string): TomlConfig {
@@ -36,9 +37,9 @@ function loadToml(configPath: string): TomlConfig {
   return parse(raw) as unknown as TomlConfig
 }
 
-export function createConfig(configPath?: string) {
-  assertModelProviderConfigured()
+export async function createConfig(configPath?: string) {
   const toml = loadToml(configPath ?? resolve(process.cwd(), 'config.toml'))
+  await initModelProvider(toml.gateway?.projects)
   const testMode = process.env.TEST_MODE === 'true'
 
   const at = toml.agent.test_mode
@@ -127,4 +128,4 @@ export function createConfig(configPath?: string) {
   return config
 }
 
-export type Config = ReturnType<typeof createConfig>
+export type Config = Awaited<ReturnType<typeof createConfig>>

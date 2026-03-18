@@ -1,5 +1,7 @@
 import { createEigenGateway } from '@layr-labs/ai-gateway-provider'
 import type { EigenGatewayProviderConfig } from '@layr-labs/ai-gateway-provider'
+import { AttestClient, JwtProvider } from '@layr-labs/ecloud-sdk/attest'
+import { log } from 'console'
 
 export type ModelTask =
   | 'scoring'
@@ -16,15 +18,46 @@ export type ModelTask =
 
 const agentModelOverride = process.env.AGENT_MODEL?.trim()
 let eigenProvider: ReturnType<typeof createEigenGateway> | null = null
+let gatewayProjectMap: Record<string, string> | undefined
 
-export function assertModelProviderConfigured(): void {
-  if (!resolveBaseURL()) {
-    throw new Error('LLM_PROXY_URL or EIGEN_GATEWAY_URL is required.')
+export async function initModelProvider(projectMap?: Record<string, string>): Promise<void> {
+  gatewayProjectMap = projectMap
+  const baseURL = await resolveBaseURL()
+
+  if (!baseURL) {
+    throw new Error(
+      'Gateway URL is required. Set LLM_PROXY_URL / EIGEN_GATEWAY_URL, or configure [gateway.projects] in config.toml with attestation.',
+    )
   }
 
-  if (!resolveStaticJwt() && !resolveAttestConfig()) {
+  const jwt = resolveStaticJwt()
+  const attestConfig = resolveAttestConfig()
+
+  if (!jwt && !attestConfig) {
     throw new Error('LLM_PROXY_API_KEY or KMS_AUTH_JWT is required.')
   }
+
+  const config: EigenGatewayProviderConfig = {
+    baseURL,
+    debug: process.env.DEBUG === 'true',
+  }
+
+  if (jwt) {
+    config.jwt = jwt
+  }
+
+  if (attestConfig) {
+    config.attestConfig = attestConfig
+  }
+
+  eigenProvider = createEigenGateway(config)
+}
+
+export function getEigenProvider(): ReturnType<typeof createEigenGateway> {
+  if (!eigenProvider) {
+    throw new Error('Model provider not initialised. Call initModelProvider() first.')
+  }
+  return eigenProvider
 }
 
 export function resolveModel(
@@ -41,8 +74,11 @@ export function resolveModel(
     throw new Error(`No model configured for task: ${task}`)
   }
 
-  assertModelProviderConfigured()
-  return getEigenProvider()(modelId)
+  if (!eigenProvider) {
+    throw new Error('Model provider not initialised. Call initModelProvider() first.')
+  }
+
+  return eigenProvider(modelId)
 }
 
 export function resolveModelId(
@@ -64,37 +100,39 @@ function resolveRuntimeModelOverride(task: ModelTask): string | undefined {
   return agentModelOverride
 }
 
-export function getEigenProvider(): ReturnType<typeof createEigenGateway> {
-  const baseURL = resolveBaseURL()
-  const jwt = resolveStaticJwt()
+async function resolveBaseURL(): Promise<string | undefined> {
+  const envURL = process.env.LLM_PROXY_URL?.trim() || process.env.EIGEN_GATEWAY_URL?.trim()
+  if (envURL) return envURL
+
   const attestConfig = resolveAttestConfig()
-
-  if (!baseURL || (!jwt && !attestConfig)) {
-    throw new Error('Proxy provider is not configured.')
+  if (!attestConfig || !gatewayProjectMap || Object.keys(gatewayProjectMap).length === 0) {
+    return undefined
   }
 
-  if (!eigenProvider) {
-    const config: EigenGatewayProviderConfig = {
-      baseURL,
-      debug: process.env.DEBUG === 'true',
-    }
+  const attestClient = new AttestClient(attestConfig)
+  const jwtProvider = new JwtProvider(attestClient)
+  const token = await jwtProvider.getToken()
 
-    if (jwt) {
-      config.jwt = jwt
-    }
-
-    if (attestConfig) {
-      config.attestConfig = attestConfig
-    }
-
-    eigenProvider = createEigenGateway(config)
+  const projectId = decodeProjectId(token)
+  if (!projectId) {
+    throw new Error('JWT does not contain a submods.gce.project_id claim. Cannot resolve gateway URL.')
   }
 
-  return eigenProvider
+  const url = gatewayProjectMap[projectId]
+  if (!url) {
+    throw new Error(
+      `No gateway URL configured for project "${projectId}". Add it to [gateway.projects] in config.toml.`,
+    )
+  }
+
+  return url
 }
 
-function resolveBaseURL(): string | undefined {
-  return process.env.LLM_PROXY_URL?.trim() || process.env.EIGEN_GATEWAY_URL?.trim()
+function decodeProjectId(jwt: string): string | undefined {
+  const payload = jwt.split('.')[1]
+  if (!payload) return undefined
+  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString())
+  return decoded.submods?.gce?.project_id
 }
 
 function resolveStaticJwt(): string | undefined {
