@@ -10,6 +10,7 @@ import type { CompiledEngagement } from '../../process/types.js'
 import { buildMonologuePrompt } from '../../prompts/monologue.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import type { ContentSigner } from '../../crypto/signer.js'
+import { buildTweetSignatureFooter } from '../../crypto/footer.js'
 import type { Post, AgentIdentity } from '../../types.js'
 import { join } from 'path'
 import { generateTrackedText } from '../../ai/tracking.js'
@@ -105,6 +106,7 @@ export class EngagementLoop {
     private identity: AgentIdentity,
     private signer?: ContentSigner,
     private compiledEngagement?: CompiledEngagement,
+    private domain: string = 'localhost',
   ) {
     this.followedUsers = new JsonStore(join(config.dataDir, 'followed-users.json'))
     this.engagementState = new JsonStore(join(config.dataDir, 'engagement-state.json'))
@@ -238,17 +240,27 @@ export class EngagementLoop {
   }
 
   private async storeSignedReply(text: string, tweetId: string): Promise<void> {
+    const signature = await this.signer?.sign(text)
     const post: Post = {
       id: randomUUID(),
       platformId: tweetId,
       text,
       type: 'engagement',
-      signature: await this.signer?.sign(text),
+      signature,
       signerAddress: this.signer?.address,
       postedAt: Date.now(),
       engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
     }
     await this.posts.update((p) => [...p, post], [])
+
+    if (signature) {
+      const footer = buildTweetSignatureFooter(signature, this.domain)
+      try {
+        await this.twitter.reply({ text: footer, replyToId: tweetId })
+      } catch (err) {
+        this.events.monologue(`Failed to post signature reply: ${(err as Error).message}`)
+      }
+    }
   }
 
   private isSpam(mention: {

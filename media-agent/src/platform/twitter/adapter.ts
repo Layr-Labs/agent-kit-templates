@@ -35,6 +35,10 @@ export class TwitterAdapter implements PlatformAdapter {
     return { platformId: tweetId, url: `https://x.com/i/status/${tweetId}` }
   }
 
+  async reply(opts: { text: string; replyToId: string }): Promise<string> {
+    return this.twitter.reply(opts)
+  }
+
   async engage(): Promise<void> {
     await this.engagementLoop.check()
   }
