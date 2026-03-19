@@ -224,12 +224,15 @@ export async function generateTrackedText(
     ),
   )
   const maxRetries = resolveInferenceMaxRetries()
+  const normalizedGenerateOptions = normalizeGenerateOptions({
+    ...generateOptions,
+    providerOptions,
+  }, operation)
 
   try {
     const result = await runGenerateText({
-      ...generateOptions,
+      ...normalizedGenerateOptions,
       maxRetries,
-      providerOptions,
     } as any)
     await tracker?.record(buildCostRecord({
       operation,
@@ -249,6 +252,82 @@ export async function generateTrackedText(
     }))
     throw error
   }
+}
+
+function normalizeGenerateOptions(
+  options: Record<string, unknown>,
+  operation: string,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...options }
+
+  if (typeof normalized.system === 'string' && normalized.system.trim().length === 0) {
+    delete normalized.system
+  }
+
+  if (typeof normalized.prompt === 'string' && normalized.prompt.trim().length === 0) {
+    delete normalized.prompt
+  }
+
+  if (Array.isArray(normalized.messages)) {
+    const sanitizedMessages = sanitizeMessages(normalized.messages)
+    if (sanitizedMessages.length > 0) {
+      normalized.messages = sanitizedMessages
+    } else {
+      delete normalized.messages
+    }
+  }
+
+  if (!hasPromptContent(normalized)) {
+    throw new Error(`Inference request "${operation}" has no non-empty prompt content.`)
+  }
+
+  return normalized
+}
+
+function sanitizeMessages(messages: unknown[]): unknown[] {
+  return messages.flatMap((message) => {
+    if (!isRecord(message) || !('content' in message)) return [message]
+
+    const content = message.content
+    if (typeof content === 'string') {
+      return content.trim().length > 0 ? [message] : []
+    }
+
+    if (!Array.isArray(content)) return [message]
+
+    const sanitizedContent = content.filter((part) => {
+      if (!isRecord(part)) return true
+      if (part.type !== 'text') return true
+      return typeof part.text !== 'string' || part.text.trim().length > 0
+    })
+
+    if (sanitizedContent.length === 0) return []
+    return [{ ...message, content: sanitizedContent }]
+  })
+}
+
+function hasPromptContent(options: Record<string, unknown>): boolean {
+  if (typeof options.prompt === 'string' && options.prompt.trim().length > 0) return true
+
+  if (!Array.isArray(options.messages)) return false
+
+  return options.messages.some((message) => {
+    if (!isRecord(message) || !('content' in message)) return false
+
+    const content = message.content
+    if (typeof content === 'string') return content.trim().length > 0
+    if (!Array.isArray(content)) return false
+
+    return content.some((part) => {
+      if (!isRecord(part)) return false
+      if (part.type !== 'text') return true
+      return typeof part.text === 'string' && part.text.trim().length > 0
+    })
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null
 }
 
 function buildCostRecord(input: {
