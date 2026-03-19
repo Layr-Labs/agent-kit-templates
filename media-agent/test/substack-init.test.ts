@@ -10,6 +10,7 @@ import {
   retryBrowserLoginWithFreshSession,
   resolveCdpJsonEndpoint,
   selectCdpTarget,
+  setupPublication,
   type CdpBrowserTarget,
 } from '../src/platform/substack/init.js'
 
@@ -39,6 +40,20 @@ afterEach(async () => {
 })
 
 describe('Substack init helpers', () => {
+  const publicationIdentity = {
+    name: 'The Common Thread (Vera, Edmund, and Mira)',
+    tagline: 'Context with a pulse',
+    creator: 'The Common Thread',
+    persona: 'Observant and concise',
+    beliefs: ['Clarity compounds.'],
+    themes: ['systems', 'coordination'],
+    punchesUp: ['bureaucracy'],
+    respects: ['evidence'],
+    voice: 'plainspoken',
+    restrictions: ['Do not bluff.'],
+    motto: 'Trace the thread.',
+  }
+
   it('resolves the CDP json endpoint from configured env', () => {
     process.env.CDP_URL = 'http://browser.internal:9333/'
     expect(resolveCdpJsonEndpoint()).toBe('http://browser.internal:9333/json')
@@ -287,5 +302,128 @@ describe('Substack init helpers', () => {
         String(message).includes('browser-autopilot completed using x11 mode'),
       ),
     ).toBe(true)
+  })
+
+  it('waits for the model to choose a concise publication name', async () => {
+    const initialSelf = {
+      name: 'The Common Thread (Vera, Edmund, and Mira)',
+      handle: 'commonthread',
+      primaryPublication: null,
+    }
+    const hydratedSelf = {
+      ...initialSelf,
+      primaryPublication: { subdomain: 'commonthread' },
+    }
+
+    let refreshCalls = 0
+    const client = {
+      refreshSelf: mock(async () => {
+        refreshCalls += 1
+        return refreshCalls >= 3 ? hydratedSelf : initialSelf
+      }),
+      ensurePublication: mock(async ({ name }: { name: string }) => ({
+        subdomain: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      })),
+      getPublication: mock(async () => ({ subdomain: 'commonthread' })),
+      updateProfile: mock(async (_fields: Record<string, unknown>) => {}),
+      updatePublication: mock(async (_fields: Record<string, unknown>) => {}),
+      listCategories: mock(async () => []),
+      setPublicationTag: mock(async (_tagId: number, _rank: number) => {}),
+    }
+    const events = {
+      monologue: mock((_message: string) => {}),
+    }
+    let seenPrompt = ''
+    const generateText = mock(async (input: Record<string, any>) => {
+      seenPrompt = String(input.prompt ?? '')
+      await input.tools.bootstrap_publication.execute({ name: 'Common Thread' })
+      return ''
+    })
+
+    await setupPublication(
+      client as any,
+      publicationIdentity as any,
+      {
+        modelId: () => 'test-model',
+        model: () => 'test-model',
+      } as any,
+      events as any,
+      undefined,
+      { generateText: generateText as any },
+    )
+
+    expect(client.ensurePublication).toHaveBeenCalledTimes(1)
+    expect(client.ensurePublication.mock.calls[0]?.[0]).toEqual({ name: 'Common Thread' })
+    expect(seenPrompt).toContain('Do not mechanically truncate the full identity name')
+  })
+
+  it('returns bootstrap feedback for overlong publication names so the model can retry', async () => {
+    const initialSelf = {
+      name: 'The Common Thread (Vera, Edmund, and Mira)',
+      handle: 'commonthread',
+      primaryPublication: null,
+    }
+    const recoveredSelf = {
+      name: 'The Common Thread',
+      handle: 'commonthread',
+      primaryPublication: { subdomain: 'commonthread' },
+    }
+
+    let refreshCalls = 0
+    const client = {
+      refreshSelf: mock(async () => {
+        refreshCalls += 1
+        return refreshCalls >= 3 ? recoveredSelf : initialSelf
+      }),
+      ensurePublication: mock(async ({ name }: { name: string }) => ({
+        subdomain: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      })),
+      getPublication: mock(async () => ({ subdomain: 'commonthread' })),
+      updateProfile: mock(async (_fields: Record<string, unknown>) => {}),
+      updatePublication: mock(async (_fields: Record<string, unknown>) => {}),
+      listCategories: mock(async () => []),
+      setPublicationTag: mock(async (_tagId: number, _rank: number) => {}),
+    }
+    const events = {
+      monologue: mock((_message: string) => {}),
+    }
+
+    let seenPrompt = ''
+    let firstBootstrapResult: any = null
+    let secondBootstrapResult: any = null
+    const generateText = mock(async (input: Record<string, any>) => {
+      seenPrompt = String(input.prompt ?? '')
+      firstBootstrapResult = await input.tools.bootstrap_publication.execute({
+        name: 'The Common Thread (Vera, Edmund, and Mira)',
+      })
+      secondBootstrapResult = await input.tools.bootstrap_publication.execute({ name: 'Common Thread' })
+      return ''
+    })
+
+    await setupPublication(
+      client as any,
+      publicationIdentity as any,
+      {
+        modelId: () => 'test-model',
+        model: () => 'test-model',
+      } as any,
+      events as any,
+      undefined,
+      { generateText: generateText as any },
+    )
+
+    expect(seenPrompt).toContain('move that richer context into the bio or publication description instead')
+    expect(firstBootstrapResult).toMatchObject({
+      success: false,
+      attemptedName: 'The Common Thread (Vera, Edmund, and Mira)',
+      publication: null,
+    })
+    expect(firstBootstrapResult.errors[0]).toContain('Please enter a shorter name (30 characters max)')
+    expect(secondBootstrapResult).toMatchObject({
+      success: true,
+      attemptedName: 'Common Thread',
+      publication: { subdomain: 'commonthread' },
+    })
+    expect(client.ensurePublication).toHaveBeenCalledTimes(1)
   })
 })
