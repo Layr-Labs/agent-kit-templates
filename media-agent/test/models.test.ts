@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import { initModelProvider, resolveModel } from '../src/config/models.js'
+import { initModelProvider, resolveModel, resolveModelId } from '../src/config/models.js'
 
 const envKeys = [
+  'AGENT_MODEL',
   'LLM_PROXY_URL',
   'EIGEN_GATEWAY_URL',
   'LLM_PROXY_API_KEY',
@@ -61,5 +62,14 @@ describe('proxy-backed model resolution', () => {
     await initModelProvider()
     const model = resolveModel({ engagement: 'anthropic/claude-haiku-4.5' } as any, 'engagement')
     expect(model).toBeTruthy()
+  })
+
+  it('does not let AGENT_MODEL override the compilation model', () => {
+    process.env.AGENT_MODEL = 'xai/grok-4.20-reasoning-beta'
+
+    expect(resolveModelId({ compilation: 'anthropic/claude-sonnet-4.6' } as any, 'compilation'))
+      .toBe('anthropic/claude-sonnet-4.6')
+    expect(resolveModelId({ engagement: 'anthropic/claude-haiku-4.5' } as any, 'engagement'))
+      .toBe('xai/grok-4.20-reasoning-beta')
   })
 })

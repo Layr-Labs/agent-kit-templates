@@ -16,9 +16,9 @@ export type ModelTask =
   | 'reflection'
   | 'compilation'
 
-const agentModelOverride = process.env.AGENT_MODEL?.trim()
 let eigenProvider: ReturnType<typeof createEigenGateway> | null = null
 let gatewayProjectMap: Record<string, string> | undefined
+const NON_OVERRIDABLE_AGENT_MODEL_TASKS = new Set<ModelTask>(['generation', 'review', 'compilation'])
 
 export async function initModelProvider(projectMap?: Record<string, string>): Promise<void> {
   gatewayProjectMap = projectMap
@@ -95,8 +95,9 @@ export function resolveModelId(
 }
 
 function resolveRuntimeModelOverride(task: ModelTask): string | undefined {
+  const agentModelOverride = process.env.AGENT_MODEL?.trim()
   if (!agentModelOverride) return undefined
-  if (task === 'generation' || task === 'review') return undefined
+  if (NON_OVERRIDABLE_AGENT_MODEL_TASKS.has(task)) return undefined
   return agentModelOverride
 }
 
