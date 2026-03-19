@@ -37,9 +37,13 @@ export async function initModelProvider(projectMap?: Record<string, string>): Pr
     throw new Error('LLM_PROXY_API_KEY or KMS_AUTH_JWT is required.')
   }
 
+  // The gateway provider defaults to a 30s timeout which is too short for
+  // structured-output LLM calls through a proxy. Override until the upstream
+  // fix lands: https://github.com/Layr-Labs/ai-gateway-provider/pull/2
   const config: EigenGatewayProviderConfig = {
     baseURL,
     debug: process.env.DEBUG === 'true',
+    timeout: 1_200_000,
   }
 
   if (jwt) {
