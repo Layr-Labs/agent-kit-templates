@@ -12,6 +12,7 @@ export const SCHEMA = `
     type TEXT NOT NULL DEFAULT 'flagship',
     signature TEXT,
     signer_address TEXT,
+    url_signature TEXT,
     posted_at INTEGER NOT NULL,
     likes INTEGER DEFAULT 0,
     shares INTEGER DEFAULT 0,

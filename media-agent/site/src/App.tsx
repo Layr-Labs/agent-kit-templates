@@ -258,6 +258,16 @@ export default function App() {
           </div>
         </section>
 
+        <VerificationSection
+          evmAddress={bootstrap.transparency.wallets.evm}
+          sourceHash={bootstrap.meta.sourceHash}
+          compiledAt={bootstrap.meta.compiledAt}
+          repoUrl={bootstrap.meta.repoUrl}
+          gitCommit={bootstrap.meta.gitCommit}
+          compiledAgent={bootstrap.compiledAgent}
+          template={bootstrap.meta.template}
+        />
+
         <section className="tab-root" id="tab-root">
           <div className="tab-header">
             <div>
@@ -427,7 +437,7 @@ export default function App() {
               </article>
             ) : (
               <>
-                  <div className="editorial-grid">
+                <div className="editorial-grid">
                   {editorialPosts.map((post) => (
                     <EditorialCard key={post.id} post={post} />
                   ))}
@@ -619,6 +629,278 @@ export default function App() {
   )
 }
 
+interface VerifyResult {
+  accountVerified?: boolean
+  signatureVerified: boolean
+  error?: string
+}
+
+function VerificationSection({
+  evmAddress,
+  sourceHash,
+  compiledAt,
+  repoUrl,
+  gitCommit,
+  compiledAgent,
+  template,
+}: {
+  evmAddress: string | null
+  sourceHash: string
+  compiledAt: number
+  repoUrl: string | null
+  gitCommit: string | null
+  compiledAgent: Record<string, unknown>
+  template: string
+}) {
+  const [url, setUrl] = useState('')
+  const [message, setMessage] = useState('')
+  const [signature, setSignature] = useState('')
+  const [loadingLink, setLoadingLink] = useState(false)
+  const [loadingSig, setLoadingSig] = useState(false)
+  const [linkResult, setLinkResult] = useState<VerifyResult | null>(null)
+  const [sigResult, setSigResult] = useState<VerifyResult | null>(null)
+  const [sourceExpanded, setSourceExpanded] = useState(false)
+  const [keyCopied, setKeyCopied] = useState(false)
+
+  async function handleVerifyLink() {
+    setLoadingLink(true)
+    setLinkResult(null)
+    try {
+      const res = await fetch('/api/verify/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      setLinkResult(await res.json() as VerifyResult)
+    } catch {
+      setLinkResult({ signatureVerified: false, error: 'Request failed.' })
+    } finally {
+      setLoadingLink(false)
+    }
+  }
+
+  async function handleVerifySignature() {
+    setLoadingSig(true)
+    setSigResult(null)
+    try {
+      const res = await fetch('/api/verify/signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, signature }),
+      })
+      setSigResult(await res.json() as VerifyResult)
+    } catch {
+      setSigResult({ signatureVerified: false, error: 'Request failed.' })
+    } finally {
+      setLoadingSig(false)
+    }
+  }
+
+  return (
+    <section className="verify-section">
+      <div className="tab-header">
+        <h2 className="section-title">Verification</h2>
+        <p className="tab-description">Verification utilities for this agent.</p>
+      </div>
+
+      <article className="card">
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Public key</h3>
+          <p className="verify-description">
+            The agent&rsquo;s EVM address used to sign all published content.
+          </p>
+        </div>
+        <div className="verify-row-value">
+          {evmAddress ? (
+            <button
+              className="verify-pubkey-btn"
+              onClick={() => {
+                void navigator.clipboard.writeText(evmAddress)
+                setKeyCopied(true)
+                setTimeout(() => setKeyCopied(false), 1800)
+              }}
+              title="Copy to clipboard"
+            >
+              <span className="mono-copy verify-pubkey">{evmAddress}</span>
+              <span className="verify-copy-icon">{keyCopied ? '\u2713' : '\u2398'}</span>
+            </button>
+          ) : (
+            <p className="mono-copy verify-pubkey">No EVM wallet configured</p>
+          )}
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Verify link</h3>
+          <p className="verify-description">
+            Paste a tweet or article URL to verify it was published by this agent.
+          </p>
+        </div>
+        <div className="verify-row-inputs">
+          <input
+            className="verify-input"
+            type="url"
+            placeholder="https://agent.substack.com/p/article-slug"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) void handleVerifyLink() }}
+          />
+          <button
+            className="verify-submit"
+            onClick={handleVerifyLink}
+            disabled={loadingLink || !url.trim()}
+          >
+            {loadingLink ? 'Verifying\u2026' : 'Verify'}
+          </button>
+          {linkResult && <VerifyInlineResult result={linkResult} />}
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Verify signature</h3>
+          <p className="verify-description">
+            Paste a message and its signature to verify it was signed by this agent{evmAddress ? ` (${evmAddress.slice(0, 6)}\u2026${evmAddress.slice(-4)})` : ''}.
+          </p>
+        </div>
+        <div className="verify-row-inputs">
+          <textarea
+            className="verify-textarea"
+            placeholder="Message content"
+            rows={2}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <input
+            className="verify-input"
+            type="text"
+            placeholder="0x signature"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && message.trim() && signature.trim()) void handleVerifySignature() }}
+          />
+          <button
+            className="verify-submit"
+            onClick={handleVerifySignature}
+            disabled={loadingSig || !message.trim() || !signature.trim()}
+          >
+            {loadingSig ? 'Verifying\u2026' : 'Verify'}
+          </button>
+          {sigResult && <VerifyInlineResult result={sigResult} />}
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Source code</h3>
+          <p className="verify-description">
+            Verify the agent&rsquo;s source code integrity. The source hash is a deterministic fingerprint
+            of the agent&rsquo;s soul and constitution at compile time.
+          </p>
+        </div>
+        <div className="verify-source-card">
+          <div className="verify-source-header">
+            <div className="verify-source-status">
+              <span className="verify-source-pill">{'\u2713'} Compiled</span>
+              <span className="meta-copy">{formatDateTime(compiledAt)}</span>
+            </div>
+          </div>
+          <div className="verify-source-tiles verify-source-tiles-top">
+            {repoUrl ? (
+              <a href={repoUrl} target="_blank" rel="noreferrer" className="verify-source-tile verify-source-tile-link">
+                <p className="verify-source-label">Repository</p>
+                <p className="verify-source-value">{repoUrl.replace(/^https?:\/\/github\.com\//, '')}</p>
+              </a>
+            ) : (
+              <div className="verify-source-tile">
+                <p className="verify-source-label">Repository</p>
+                <p className="verify-source-value meta-copy">Not available</p>
+              </div>
+            )}
+            {gitCommit ? (
+              <a
+                href={repoUrl ? `${repoUrl}/commit/${gitCommit}` : '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="verify-source-tile verify-source-tile-link"
+              >
+                <p className="verify-source-label">Commit</p>
+                <p className="verify-source-value mono-copy">{gitCommit.slice(0, 12)}</p>
+              </a>
+            ) : (
+              <div className="verify-source-tile">
+                <p className="verify-source-label">Commit</p>
+                <p className="verify-source-value meta-copy">Not available</p>
+              </div>
+            )}
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Template</p>
+              <p className="verify-source-value">{template}</p>
+            </div>
+          </div>
+          <div className="verify-source-tiles">
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Source hash</p>
+              <p className="verify-source-value mono-copy">{sourceHash}</p>
+            </div>
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Compiled</p>
+              <p className="verify-source-value">{formatRelativeTime(compiledAt)}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="verify-source-toggle"
+            onClick={() => setSourceExpanded((v) => !v)}
+            aria-expanded={sourceExpanded}
+          >
+            {sourceExpanded ? 'Hide details' : 'Show details'}
+            <span className={`verify-source-chevron${sourceExpanded ? ' is-expanded' : ''}`}>{'\u203A'}</span>
+          </button>
+          {sourceExpanded && (
+            <div className="verify-source-details">
+              <p className="verify-source-label">Compiled agent JSON</p>
+              <pre className="verify-source-json">{JSON.stringify(compiledAgent, null, 2)}</pre>
+            </div>
+          )}
+        </div>
+      </div>
+      </article>
+    </section>
+  )
+}
+
+function VerifyInlineResult({ result }: { result: VerifyResult }) {
+  const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
+
+  return (
+    <div className={`verify-inline-result ${allPassed ? 'verify-inline-pass' : 'verify-inline-fail'}`}>
+      <p className="verify-inline-title">
+        {allPassed ? '\u2713 Verification succeeded' : '\u2717 Verification failed'}
+      </p>
+      <ul className="verify-inline-checks">
+        {result.accountVerified !== undefined && (
+          <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
+            {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
+          </li>
+        )}
+        <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+          {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+        </li>
+        {result.error && <li className="verify-fail">{result.error}</li>}
+      </ul>
+    </div>
+  )
+}
+
 function Metric({
   label,
   value,
@@ -769,6 +1051,11 @@ function normalizePost(input: Record<string, unknown>): PublicPostRecord {
       ? String(input.signerAddress)
       : input.signer_address
         ? String(input.signer_address)
+        : undefined,
+    urlSignature: input.urlSignature
+      ? String(input.urlSignature)
+      : input.url_signature
+        ? String(input.url_signature)
         : undefined,
     postedAt: Number(input.postedAt ?? input.posted_at ?? 0),
     engagement,
