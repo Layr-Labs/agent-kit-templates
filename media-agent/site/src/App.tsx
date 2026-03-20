@@ -16,6 +16,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedValue, setCopiedValue] = useState<string | null>(null)
+  const [verifyOpen, setVerifyOpen] = useState(false)
   const seenEventKeys = useRef(new Set<string>())
 
   useEffect(() => {
@@ -214,6 +215,17 @@ export default function App() {
             <span className="state-dot" aria-hidden="true" />
             {stateLabel}
           </span>
+          <div className="verify-wrapper">
+            <button className="button button-ghost" onClick={() => setVerifyOpen((v) => !v)}>
+              Verify
+            </button>
+            {verifyOpen && (
+              <VerifyDropdown
+                evmAddress={bootstrap.transparency.wallets.evm}
+                onClose={() => setVerifyOpen(false)}
+              />
+            )}
+          </div>
           <button className="button button-ghost" onClick={() => activateTab('editorial')}>
             {bootstrap.copy.secondaryCtaLabel}
           </button>
@@ -615,6 +627,138 @@ export default function App() {
           </section>
         </section>
       </main>
+    </div>
+  )
+}
+
+interface VerifyResult {
+  accountVerified?: boolean
+  signatureVerified: boolean
+  error?: string
+}
+
+function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState<'link' | 'signature'>('link')
+  const [url, setUrl] = useState('')
+  const [message, setMessage] = useState('')
+  const [signature, setSignature] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<VerifyResult | null>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  async function handleSubmit() {
+    setLoading(true)
+    setResult(null)
+    try {
+      const endpoint = activeTab === 'link' ? '/api/verify/link' : '/api/verify/signature'
+      const body = activeTab === 'link' ? { url } : { message, signature }
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json() as VerifyResult
+      setResult(data)
+    } catch {
+      setResult({ signatureVerified: false, error: 'Request failed.' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (result) {
+    const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
+    return (
+      <div className="verify-dropdown" ref={ref}>
+        <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+        <p className={`verify-result-title ${allPassed ? 'verify-check' : 'verify-fail'}`}>
+          {allPassed ? 'Verification succeeded' : 'Verification failed'}
+        </p>
+        <ul className="verify-result-list">
+          {result.accountVerified !== undefined && (
+            <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
+              {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
+            </li>
+          )}
+          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+          </li>
+          {result.error && <li className="verify-fail">{result.error}</li>}
+        </ul>
+        <button className="verify-submit" onClick={() => setResult(null)}>Try another</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="verify-dropdown" ref={ref}>
+      <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+      <div className="verify-tabs">
+        <button
+          className={`verify-tab${activeTab === 'link' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('link')}
+        >
+          Verify link
+        </button>
+        <button
+          className={`verify-tab${activeTab === 'signature' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('signature')}
+        >
+          Verify signature
+        </button>
+      </div>
+
+      {activeTab === 'link' ? (
+        <>
+          <p className="verify-description">
+            Paste a tweet or article URL to verify it was published by this agent and cryptographically signed.
+          </p>
+          <input
+            className="verify-input"
+            type="url"
+            placeholder="https://x.com/agent/status/123"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </>
+      ) : (
+        <>
+          <p className="verify-description">
+            Paste the message content and its signature to verify it was signed by this agent
+            {evmAddress ? ` (${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)})` : ''}.
+          </p>
+          <textarea
+            className="verify-textarea"
+            placeholder="Message content"
+            rows={3}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <input
+            className="verify-input"
+            type="text"
+            placeholder="0x signature"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+          />
+        </>
+      )}
+
+      <button
+        className="verify-submit"
+        onClick={handleSubmit}
+        disabled={loading || (activeTab === 'link' ? !url.trim() : !message.trim() || !signature.trim())}
+      >
+        {loading ? 'Verifying...' : 'Verify'}
+      </button>
     </div>
   )
 }

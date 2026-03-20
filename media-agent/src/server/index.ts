@@ -19,6 +19,7 @@ import { getInstalledSkillsRoot, listInstalledSkillInventory } from '../skills/i
 import { handleProcessUpgrade } from '../upgrade/process.js'
 import type { CompiledAgent } from '../process/types.js'
 import { buildSiteBootstrap, loadWorldview } from './site.js'
+import { ContentSigner } from '../crypto/signer.js'
 
 export async function createServer(opts: {
   events: EventBus
@@ -258,6 +259,93 @@ export async function createServer(opts: {
       reply.header(key, value)
     }
     return response.text()
+  })
+
+  // Verify link
+  app.post('/api/verify/link', async (request, reply) => {
+    const { url } = (request.body ?? {}) as { url?: string }
+    if (!url || typeof url !== 'string') {
+      reply.code(400)
+      return { accountVerified: false, signatureVerified: false, error: 'Missing url field.' }
+    }
+
+    const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
+    const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
+
+    let accountVerified = false
+    let post: Record<string, unknown> | null = null
+
+    if (twitterMatch) {
+      const [, username, tweetId] = twitterMatch
+      accountVerified = config.platform === 'twitter' &&
+        username.toLowerCase() === config.twitter.username.toLowerCase()
+      post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(tweetId) as Record<string, unknown> | null
+    } else if (substackMatch) {
+      const [, domain, slug] = substackMatch
+      let pubUrl: string | null = null
+      if (getSubstackPublicationUrl) {
+        try { pubUrl = await getSubstackPublicationUrl() } catch { /* ignore */ }
+      }
+
+      if (pubUrl) {
+        try {
+          accountVerified = new URL(pubUrl).origin === new URL(`https://${domain}`).origin
+        } catch { /* ignore */ }
+      }
+
+      // Try article_url lookup first, then fall back to platform_id with slug
+      post = db.query('SELECT * FROM posts WHERE article_url LIKE ?').get(`%${slug}%`) as Record<string, unknown> | null
+      if (!post) {
+        post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(slug) as Record<string, unknown> | null
+      }
+
+      // If we found a post by article_url and couldn't verify via pub URL, mark account verified
+      if (post && !accountVerified && config.platform === 'substack') {
+        accountVerified = true
+      }
+    } else {
+      return { accountVerified: false, signatureVerified: false, error: 'Unrecognized URL format. Provide a Twitter or Substack post URL.' }
+    }
+
+    if (!post) {
+      return { accountVerified, signatureVerified: false, error: 'Post not found in the agent\'s database.' }
+    }
+
+    const sig = post.signature as string | null
+    const sigAddr = post.signer_address as string | null
+    const text = post.text as string
+
+    if (!sig || !sigAddr) {
+      return { accountVerified, signatureVerified: false, error: 'Post exists but has no signature.' }
+    }
+
+    try {
+      const signatureVerified = await ContentSigner.verify(text, sig, sigAddr)
+      return { accountVerified, signatureVerified }
+    } catch {
+      return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
+    }
+  })
+
+  // Verify raw signature
+  app.post('/api/verify/signature', async (request, reply) => {
+    const { message, signature } = (request.body ?? {}) as { message?: string; signature?: string }
+    if (!message || !signature) {
+      reply.code(400)
+      return { signatureVerified: false, signerAddress: '', error: 'Missing message or signature field.' }
+    }
+
+    const signerAddress = wallets?.evm ?? ''
+    if (!signerAddress) {
+      return { signatureVerified: false, signerAddress: '', error: 'Agent has no EVM wallet configured.' }
+    }
+
+    try {
+      const signatureVerified = await ContentSigner.verify(message, signature, signerAddress)
+      return { signatureVerified, signerAddress }
+    } catch {
+      return { signatureVerified: false, signerAddress, error: 'Signature verification failed.' }
+    }
   })
 
   // Console SSE
