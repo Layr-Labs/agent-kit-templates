@@ -30,6 +30,7 @@ import type { PlatformAdapter } from './platform/types.js'
 import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
 import { ensureInstalledSkillsRoot, getInstalledSkillsRoot } from './skills/installed.js'
+import { SelfBilling, resolveSelfBillingConfig } from './billing/self-billing.js'
 
 function readFile(path: string): string {
   try {
@@ -256,13 +257,26 @@ async function main() {
   await app.listen({ port: config.port, host: '0.0.0.0' })
   console.log(`Media agent running on port ${config.port}`)
 
-  // 13. Start agent loop
+  // 13. Start self-billing cron (pays for compute when credits run low)
+  let selfBilling: SelfBilling | undefined
+  const billingConfig = resolveSelfBillingConfig()
+  if (billingConfig) {
+    selfBilling = new SelfBilling(billingConfig, wallet.getEthAccount(), events)
+    const ready = await selfBilling.init()
+    if (ready) {
+      selfBilling.start()
+      console.log(`Self-billing: active (checking every ${billingConfig.checkIntervalMs / 1000}s)`)
+    }
+  }
+
+  // 14. Start agent loop
   const loop = new AgentLoop(events, executor, skills, config, identity)
   const loopPromise = loop.start()
 
   const shutdown = async () => {
     console.log('Shutting down...')
     loop.stop()
+    selfBilling?.stop()
     await Promise.all([signalCache.persist(), evalCache.persist(), imageCache.persist()])
     skills.stopHotReload()
     await skills.shutdownAll()
