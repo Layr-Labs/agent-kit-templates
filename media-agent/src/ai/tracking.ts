@@ -350,8 +350,15 @@ function buildCostRecord(input: {
     ?? usage.promptTokensDetails?.cachedTokens
     ?? usage.prompt_tokens_details?.cached_tokens,
   )
-  const costUsd = toNumber(usage.cost ?? gatewayMeta?.cost)
-  const marketCostUsd = toNumber(usage.marketCost ?? usage.market_cost ?? gatewayMeta?.marketCost ?? gatewayMeta?.marketCostUsd ?? gatewayMeta?.market_cost)
+  const costUsd = toNumber(usage.cost ?? gatewayMeta?.cost ?? input.result?.response?.body?.usage?.cost) 
+  const marketCostUsd = toNumber(
+    usage.marketCost
+    ?? usage.market_cost
+    ?? gatewayMeta?.marketCost
+    ?? gatewayMeta?.marketCostUsd
+    ?? gatewayMeta?.market_cost
+    ?? input.result?.response?.body?.usage?.market_cost
+  )
 
   return {
     ts: Date.now(),
