@@ -121,6 +121,7 @@ export interface Post {
   type: 'flagship' | 'quickhit' | 'paid' | 'article' | 'engagement'
   signature?: string
   signerAddress?: string
+  urlSignature?: string
   postedAt: number
   engagement: {
     likes: number

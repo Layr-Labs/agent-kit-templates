@@ -19,6 +19,7 @@ export interface PublicPostRecord {
   type: string
   signature?: string
   signerAddress?: string
+  urlSignature?: string
   postedAt: number
   engagement: {
     likes: number

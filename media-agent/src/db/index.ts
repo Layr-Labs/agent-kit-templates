@@ -10,6 +10,7 @@ export async function createDatabase(dbPath: string): Promise<Database> {
   db.exec('PRAGMA foreign_keys = ON')
   db.exec(SCHEMA)
   ensurePostColumn(db, 'summary', 'TEXT')
+  ensurePostColumn(db, 'url_signature', 'TEXT')
   return db
 }
 

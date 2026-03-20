@@ -21,6 +21,7 @@ export interface PublicPostRecord {
   type: string
   signature?: string
   signerAddress?: string
+  urlSignature?: string
   postedAt: number
   engagement: {
     likes: number
@@ -205,6 +206,7 @@ export function mapPostRow(row: Record<string, unknown>): PublicPostRecord {
     type: String(row.type ?? 'flagship'),
     signature: row.signature ? String(row.signature) : undefined,
     signerAddress: row.signer_address ? String(row.signer_address) : undefined,
+    urlSignature: row.url_signature ? String(row.url_signature) : undefined,
     postedAt: Number(row.posted_at ?? 0),
     engagement: {
       likes: Number(row.likes ?? 0),

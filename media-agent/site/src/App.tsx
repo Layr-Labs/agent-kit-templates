@@ -631,7 +631,6 @@ export default function App() {
 }
 
 interface VerifyResult {
-  accountVerified?: boolean
   signatureVerified: boolean
   error?: string
 }
@@ -678,18 +677,12 @@ function VerifyModal({ evmAddress, onClose }: { evmAddress: string | null; onClo
   }
 
   const content = result ? (() => {
-    const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
     return (
       <>
-        <p className={`verify-result-title ${allPassed ? 'verify-check' : 'verify-fail'}`}>
-          {allPassed ? 'Verification succeeded' : 'Verification failed'}
+        <p className={`verify-result-title ${result.signatureVerified ? 'verify-check' : 'verify-fail'}`}>
+          {result.signatureVerified ? 'Verification succeeded' : 'Verification failed'}
         </p>
         <ul className="verify-result-list">
-          {result.accountVerified !== undefined && (
-            <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
-              {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
-            </li>
-          )}
           <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
             {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
           </li>
@@ -921,6 +914,11 @@ function normalizePost(input: Record<string, unknown>): PublicPostRecord {
       ? String(input.signerAddress)
       : input.signer_address
         ? String(input.signer_address)
+        : undefined,
+    urlSignature: input.urlSignature
+      ? String(input.urlSignature)
+      : input.url_signature
+        ? String(input.url_signature)
         : undefined,
     postedAt: Number(input.postedAt ?? input.posted_at ?? 0),
     engagement,

@@ -17,9 +17,9 @@ const skill: Skill = {
   async init(ctx: SkillContext) {
     function savePost(post: Post): void {
       ctx.db.run(
-        `INSERT INTO posts (id, platform_id, content_id, text, summary, image_url, video_url, article_url, reference_id, type, signature, signer_address, posted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [post.id, post.platformId, post.contentId ?? null, post.text, post.summary ?? null, post.imageUrl ?? null, post.videoUrl ?? null, post.articleUrl ?? null, post.referenceId ?? null, post.type, post.signature ?? null, post.signerAddress ?? null, post.postedAt],
+        `INSERT INTO posts (id, platform_id, content_id, text, summary, image_url, video_url, article_url, reference_id, type, signature, signer_address, url_signature, posted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [post.id, post.platformId, post.contentId ?? null, post.text, post.summary ?? null, post.imageUrl ?? null, post.videoUrl ?? null, post.articleUrl ?? null, post.referenceId ?? null, post.type, post.signature ?? null, post.signerAddress ?? null, post.urlSignature ?? null, post.postedAt],
       )
     }
 
@@ -58,6 +58,11 @@ const skill: Skill = {
             contentType: 'image',
           })
 
+          let urlSignature: string | undefined
+          if (ctx.signer && result.url) {
+            urlSignature = await ctx.signer.sign(result.url)
+          }
+
           const critique = ctx.state.critique ?? {
             conceptId: concept.id, quality: 7, clarity: 7,
             shareability: 7, execution: 7, overallScore: 7, critique: 'Auto',
@@ -87,6 +92,7 @@ const skill: Skill = {
             type,
             signature,
             signerAddress,
+            urlSignature,
             postedAt: Date.now(),
             engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
           }
@@ -135,6 +141,17 @@ const skill: Skill = {
             return { error: `Publishing failed: ${err.message}` }
           }
 
+          let signature: string | undefined
+          let signerAddress: string | undefined
+          let urlSignature: string | undefined
+          if (ctx.signer) {
+            signature = await ctx.signer.sign(article.title)
+            signerAddress = ctx.signer.address
+            if (result.url) {
+              urlSignature = await ctx.signer.sign(result.url)
+            }
+          }
+
           // Record as content too so dedupe/editor can see article topics in this runtime.
           const critique = ctx.state.critique ?? {
             conceptId: concept.id, quality: 7, clarity: 7,
@@ -163,6 +180,9 @@ const skill: Skill = {
             imageUrl: headerImage,
             articleUrl: result.url,
             type: 'article',
+            signature,
+            signerAddress,
+            urlSignature,
             postedAt: Date.now(),
             engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
           }

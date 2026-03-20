@@ -266,64 +266,43 @@ export async function createServer(opts: {
     const { url } = (request.body ?? {}) as { url?: string }
     if (!url || typeof url !== 'string') {
       reply.code(400)
-      return { accountVerified: false, signatureVerified: false, error: 'Missing url field.' }
+      return { signatureVerified: false, error: 'Missing url field.' }
     }
 
     const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
     const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
 
-    let accountVerified = false
     let post: Record<string, unknown> | null = null
 
     if (twitterMatch) {
-      const [, username, tweetId] = twitterMatch
-      accountVerified = config.platform === 'twitter' &&
-        username.toLowerCase() === config.twitter.username.toLowerCase()
+      const [, , tweetId] = twitterMatch
       post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(tweetId) as Record<string, unknown> | null
     } else if (substackMatch) {
-      const [, domain, slug] = substackMatch
-      let pubUrl: string | null = null
-      if (getSubstackPublicationUrl) {
-        try { pubUrl = await getSubstackPublicationUrl() } catch { /* ignore */ }
-      }
-
-      if (pubUrl) {
-        try {
-          accountVerified = new URL(pubUrl).origin === new URL(`https://${domain}`).origin
-        } catch { /* ignore */ }
-      }
-
-      // Try article_url lookup first, then fall back to platform_id with slug
+      const [, , slug] = substackMatch
       post = db.query('SELECT * FROM posts WHERE article_url LIKE ?').get(`%${slug}%`) as Record<string, unknown> | null
       if (!post) {
         post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(slug) as Record<string, unknown> | null
       }
-
-      // If we found a post by article_url and couldn't verify via pub URL, mark account verified
-      if (post && !accountVerified && config.platform === 'substack') {
-        accountVerified = true
-      }
     } else {
-      return { accountVerified: false, signatureVerified: false, error: 'Unrecognized URL format. Provide a Twitter or Substack post URL.' }
+      return { signatureVerified: false, error: 'Unrecognized URL format. Provide a Twitter or Substack post URL.' }
     }
 
     if (!post) {
-      return { accountVerified, signatureVerified: false, error: 'Post not created by agent.' }
+      return { signatureVerified: false, error: 'Post not created by agent.' }
     }
 
-    const sig = post.signature as string | null
+    const urlSig = post.url_signature as string | null
     const sigAddr = post.signer_address as string | null
-    const text = post.text as string
 
-    if (!sig || !sigAddr) {
-      return { accountVerified, signatureVerified: false, error: 'Post exists but has no signature.' }
+    if (!urlSig || !sigAddr) {
+      return { signatureVerified: false, error: 'Post exists but has no URL signature.' }
     }
 
     try {
-      const signatureVerified = await ContentSigner.verify(text, sig, sigAddr)
-      return { accountVerified, signatureVerified }
+      const signatureVerified = await ContentSigner.verify(url, urlSig, sigAddr)
+      return { signatureVerified }
     } catch {
-      return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
+      return { signatureVerified: false, error: 'Signature verification failed.' }
     }
   })
 

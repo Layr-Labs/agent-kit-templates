@@ -25,6 +25,7 @@ const MOCK_POSTS = [
     type: 'flagship',
     signature: '0xmocksig1',
     signerAddress: EVM_ADDRESS,
+    urlSignature: '0xmockurlsig1',
     postedAt: Date.now() - 3600_000,
     engagement: { likes: 142, shares: 38, comments: 12, views: 4200, lastChecked: Date.now() },
   },
@@ -36,6 +37,7 @@ const MOCK_POSTS = [
     type: 'quickhit',
     signature: '0xmocksig2',
     signerAddress: EVM_ADDRESS,
+    urlSignature: '0xmockurlsig2',
     postedAt: Date.now() - 7200_000,
     engagement: { likes: 89, shares: 21, comments: 5, views: 1800, lastChecked: Date.now() },
   },
@@ -49,6 +51,7 @@ const MOCK_POSTS = [
     type: 'article',
     signature: '0xmocksig3',
     signerAddress: EVM_ADDRESS,
+    urlSignature: '0xmockurlsig3',
     postedAt: Date.now() - 86400_000,
     engagement: { likes: 312, shares: 67, comments: 29, views: 8100, lastChecked: Date.now() },
   },
@@ -200,26 +203,25 @@ app.get('/api/console/stream', async (_req, reply) => {
 // Mock verify endpoints
 app.post('/api/verify/link', async (request) => {
   const { url } = (request.body ?? {}) as { url?: string }
-  if (!url) return { accountVerified: false, signatureVerified: false, error: 'Missing url field.' }
+  if (!url) return { signatureVerified: false, error: 'Missing url field.' }
 
   const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
   const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
 
+  let post: (typeof MOCK_POSTS)[number] | undefined
+
   if (twitterMatch) {
     const [, , tweetId] = twitterMatch
-    const post = MOCK_POSTS.find((p) => p.platformId === tweetId)
-    if (!post) return { accountVerified: true, signatureVerified: false, error: "Post not created by agent." }
-    return { accountVerified: true, signatureVerified: !!post.signature }
-  }
-
-  if (substackMatch) {
+    post = MOCK_POSTS.find((p) => p.platformId === tweetId)
+  } else if (substackMatch) {
     const [, , slug] = substackMatch
-    const post = MOCK_POSTS.find((p) => p.articleUrl?.includes(slug) || p.platformId === slug)
-    if (!post) return { accountVerified: true, signatureVerified: false, error: "Post not created by agent." }
-    return { accountVerified: true, signatureVerified: !!post.signature }
+    post = MOCK_POSTS.find((p) => p.articleUrl?.includes(slug) || p.platformId === slug)
+  } else {
+    return { signatureVerified: false, error: 'Unrecognized URL format.' }
   }
 
-  return { accountVerified: false, signatureVerified: false, error: 'Unrecognized URL format.' }
+  if (!post) return { signatureVerified: false, error: 'Post not created by agent.' }
+  return { signatureVerified: !!post.urlSignature }
 })
 
 app.post('/api/verify/signature', async (request) => {
