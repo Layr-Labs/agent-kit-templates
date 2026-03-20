@@ -30,6 +30,7 @@ export interface PlatformAdapter {
   engage(): Promise<void>
   getScanner(): Scanner
   supportedContentTypes(): ('image' | 'article' | 'video')[]
+  reply?(opts: { text: string; replyToId: string }): Promise<string>
   findReference?(topicSummary: string): Promise<string | undefined>
   shutdown?(): Promise<void>
 }

@@ -60,7 +60,7 @@ async function initTwitterPlatform(config: Config, events: EventBus, ctx: SkillC
   const twitter = new TwitterClient(events, readProvider, config)
 
   const postsStore = new JsonStore<Post[]>(join(config.dataDir, 'posts.json'))
-  const engagement = new EngagementLoop(events, twitter, postsStore, config, ctx.identity, ctx.signer)
+  const engagement = new EngagementLoop(events, twitter, postsStore, config, ctx.identity, ctx.signer, undefined, config.domain)
   await engagement.init()
 
   const twitterScanner = new TwitterScanner(

@@ -4,6 +4,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { Content, Post } from '../../../types.js'
+import { buildArticleSignatureFooter, buildTweetSignatureFooter } from '../../../crypto/footer.js'
 
 const skill: Skill = {
   name: 'publisher',
@@ -57,6 +58,15 @@ const skill: Skill = {
             referenceId,
             contentType: 'image',
           })
+
+          if (signature && ctx.platform.reply) {
+            const footer = buildTweetSignatureFooter(signature, ctx.config.domain)
+            try {
+              await ctx.platform.reply({ text: footer, replyToId: result.platformId })
+            } catch (err) {
+              ctx.events.monologue(`Failed to post signature reply: ${(err as Error).message}`)
+            }
+          }
 
           const critique = ctx.state.critique ?? {
             conceptId: concept.id, quality: 7, clarity: 7,
@@ -117,10 +127,22 @@ const skill: Skill = {
 
           ctx.events.transition('publishing')
 
+          let signature: string | undefined
+          let signerAddress: string | undefined
+          if (ctx.signer) {
+            signature = await ctx.signer.sign(article.body)
+            signerAddress = ctx.signer.address
+          }
+
           const articleImagePaths = article.images.map((image) => image.imagePath)
           const headerImage = article.images.find((image) => image.placement === 'header')?.imagePath
             ?? articleImagePaths[0]
             ?? ctx.state.imagePaths[0]
+
+          if (signature) {
+            const footer = buildArticleSignatureFooter(signature, ctx.config.domain)
+            article.sections.push({ type: 'paragraph', text: footer })
+          }
 
           let result
           try {
@@ -163,6 +185,8 @@ const skill: Skill = {
             imageUrl: headerImage,
             articleUrl: result.url,
             type: 'article',
+            signature,
+            signerAddress,
             postedAt: Date.now(),
             engagement: { likes: 0, shares: 0, comments: 0, views: 0, lastChecked: 0 },
           }
