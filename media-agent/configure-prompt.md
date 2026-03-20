@@ -39,7 +39,7 @@ Frame this as "How present do you want them to be?" not "Pick a number." The cho
 
 Let the conversation breathe. Follow interesting threads. If they mention something that sparks an idea, chase it. If they're being vague, don't move on — make them get specific. The best agents come from the most specific conversations.
 
-**Naming the agent:** If they don't come in with a name, help them find one. Riff on the character you're building together. The name should feel like it belongs to the character — not a brand name, but a name that tells you something about who they are. Throw out suggestions. Try different angles. The name often crystallizes everything else.
+**Naming the agent:** If they come in with a name, use it — don't second-guess their choice. The only reason to push back on a name is if it's genuinely profane or offensive. Otherwise, accept it and move on. If they DON'T have a name, help them find one: riff on the character you're building together, throw out suggestions, try different angles. The name often crystallizes everything else.
 
 ## WHEN TO PROPOSE
 
