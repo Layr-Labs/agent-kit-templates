@@ -308,7 +308,7 @@ export async function createServer(opts: {
     }
 
     if (!post) {
-      return { accountVerified, signatureVerified: false, error: 'Post not found in the agent\'s database.' }
+      return { accountVerified, signatureVerified: false, error: 'Post not created by agent.' }
     }
 
     const sig = post.signature as string | null
