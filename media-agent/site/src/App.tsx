@@ -16,7 +16,6 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedValue, setCopiedValue] = useState<string | null>(null)
-  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null)
   const seenEventKeys = useRef(new Set<string>())
 
   useEffect(() => {
@@ -267,7 +266,6 @@ export default function App() {
           gitCommit={bootstrap.meta.gitCommit}
           compiledAgent={bootstrap.compiledAgent}
           template={bootstrap.meta.template}
-          onResult={setVerifyResult}
         />
 
         <section className="tab-root" id="tab-root">
@@ -455,10 +453,6 @@ export default function App() {
               </>
             )}
           </section>
-
-          {verifyResult && (
-            <VerifyResultModal result={verifyResult} onClose={() => setVerifyResult(null)} />
-          )}
 
           <section
             id="panel-worldview"
@@ -649,7 +643,6 @@ function VerificationSection({
   gitCommit,
   compiledAgent,
   template,
-  onResult,
 }: {
   evmAddress: string | null
   sourceHash: string
@@ -658,27 +651,29 @@ function VerificationSection({
   gitCommit: string | null
   compiledAgent: Record<string, unknown>
   template: string
-  onResult: (result: VerifyResult) => void
 }) {
   const [url, setUrl] = useState('')
   const [message, setMessage] = useState('')
   const [signature, setSignature] = useState('')
   const [loadingLink, setLoadingLink] = useState(false)
   const [loadingSig, setLoadingSig] = useState(false)
+  const [linkResult, setLinkResult] = useState<VerifyResult | null>(null)
+  const [sigResult, setSigResult] = useState<VerifyResult | null>(null)
   const [sourceExpanded, setSourceExpanded] = useState(false)
   const [keyCopied, setKeyCopied] = useState(false)
 
   async function handleVerifyLink() {
     setLoadingLink(true)
+    setLinkResult(null)
     try {
       const res = await fetch('/api/verify/link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       })
-      onResult(await res.json() as VerifyResult)
+      setLinkResult(await res.json() as VerifyResult)
     } catch {
-      onResult({ signatureVerified: false, error: 'Request failed.' })
+      setLinkResult({ signatureVerified: false, error: 'Request failed.' })
     } finally {
       setLoadingLink(false)
     }
@@ -686,15 +681,16 @@ function VerificationSection({
 
   async function handleVerifySignature() {
     setLoadingSig(true)
+    setSigResult(null)
     try {
       const res = await fetch('/api/verify/signature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, signature }),
       })
-      onResult(await res.json() as VerifyResult)
+      setSigResult(await res.json() as VerifyResult)
     } catch {
-      onResult({ signatureVerified: false, error: 'Request failed.' })
+      setSigResult({ signatureVerified: false, error: 'Request failed.' })
     } finally {
       setLoadingSig(false)
     }
@@ -760,6 +756,7 @@ function VerificationSection({
           >
             {loadingLink ? 'Verifying\u2026' : 'Verify'}
           </button>
+          {linkResult && <VerifyInlineResult result={linkResult} />}
         </div>
       </div>
 
@@ -795,6 +792,7 @@ function VerificationSection({
           >
             {loadingSig ? 'Verifying\u2026' : 'Verify'}
           </button>
+          {sigResult && <VerifyInlineResult result={sigResult} />}
         </div>
       </div>
 
@@ -880,43 +878,25 @@ function VerificationSection({
   )
 }
 
-function VerifyResultModal({ result, onClose }: { result: VerifyResult; onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
-
-  function handleBackdropClick(e: React.MouseEvent) {
-    if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose()
-  }
-
+function VerifyInlineResult({ result }: { result: VerifyResult }) {
   const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
 
   return (
-    <div className="verify-backdrop" onMouseDown={handleBackdropClick}>
-      <div className="verify-modal" ref={panelRef}>
-        <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
-        <p className={`verify-result-title ${allPassed ? 'verify-check' : 'verify-fail'}`}>
-          {allPassed ? 'Verification succeeded' : 'Verification failed'}
-        </p>
-        <ul className="verify-result-list">
-          {result.accountVerified !== undefined && (
-            <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
-              {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
-            </li>
-          )}
-          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
-            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+    <div className={`verify-inline-result ${allPassed ? 'verify-inline-pass' : 'verify-inline-fail'}`}>
+      <p className="verify-inline-title">
+        {allPassed ? '\u2713 Verification succeeded' : '\u2717 Verification failed'}
+      </p>
+      <ul className="verify-inline-checks">
+        {result.accountVerified !== undefined && (
+          <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
+            {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
           </li>
-          {result.error && <li className="verify-fail">{result.error}</li>}
-        </ul>
-        <button className="verify-submit" onClick={onClose}>Close</button>
-      </div>
+        )}
+        <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+          {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+        </li>
+        {result.error && <li className="verify-fail">{result.error}</li>}
+      </ul>
     </div>
   )
 }
