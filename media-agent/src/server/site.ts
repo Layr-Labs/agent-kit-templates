@@ -47,7 +47,11 @@ export interface SiteBootstrapPayload {
     platform: string
     now: number
     uptimeSeconds: number
+    repoUrl: string | null
+    gitCommit: string | null
+    template: string
   }
+  compiledAgent: CompiledAgent
   identity: AgentIdentity
   worldview: Worldview
   engagement: {
@@ -124,6 +128,9 @@ export function buildSiteBootstrap(opts: {
   compiled: CompiledAgent
   skills: SkillRegistry
   wallets?: { evm: string; solana: string }
+  repoUrl?: string | null
+  gitCommit?: string | null
+  template?: string
 }): SiteBootstrapPayload {
   const { events, config, db, identity, compiled, skills, wallets } = opts
   const tracker = getCostTracker()
@@ -154,7 +161,11 @@ export function buildSiteBootstrap(opts: {
       platform: config.platform,
       now: Date.now(),
       uptimeSeconds: Math.floor(process.uptime()),
+      repoUrl: opts.repoUrl ?? null,
+      gitCommit: opts.gitCommit ?? null,
+      template: opts.template ?? 'unknown',
     },
+    compiledAgent: compiled,
     identity,
     worldview,
     engagement: {

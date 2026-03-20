@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
-import { join, resolve } from 'path'
+import { execSync } from 'child_process'
+import { basename, join, resolve } from 'path'
 import type { EventBus } from '../console/events.js'
 import type { Config } from '../config/index.js'
 import type { Database } from '../db/index.js'
@@ -36,6 +37,19 @@ export async function createServer(opts: {
   const app = Fastify({ logger: false })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   const siteRoot = resolve(import.meta.dir, '../../site/dist')
+
+  // Capture git info once at server creation
+  let repoUrl: string | null = null
+  let gitCommit: string | null = null
+  try {
+    repoUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
+      .replace(/\.git$/, '')
+      .replace(/^git@github\.com:/, 'https://github.com/')
+    gitCommit = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim()
+  } catch { /* not in a git repo */ }
+
+  // Template name is the directory name at the repo root (e.g. "media-agent")
+  const template = basename(resolve(import.meta.dir, '../..'))
 
   // Health
   app.get('/health', async () => ({
@@ -156,6 +170,9 @@ export async function createServer(opts: {
     compiled,
     skills,
     wallets,
+    repoUrl,
+    gitCommit,
+    template,
   }))
 
   // Skills
@@ -272,37 +289,55 @@ export async function createServer(opts: {
     const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
     const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
 
+    let accountVerified = false
     let post: Record<string, unknown> | null = null
 
     if (twitterMatch) {
-      const [, , tweetId] = twitterMatch
+      const [, username, tweetId] = twitterMatch
+      accountVerified = config.platform === 'twitter' &&
+        username.toLowerCase() === config.twitter.username.toLowerCase()
       post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(tweetId) as Record<string, unknown> | null
     } else if (substackMatch) {
-      const [, , slug] = substackMatch
+      const [, domain, slug] = substackMatch
+      let pubUrl: string | null = null
+      if (getSubstackPublicationUrl) {
+        try { pubUrl = await getSubstackPublicationUrl() } catch { /* ignore */ }
+      }
+
+      if (pubUrl) {
+        try {
+          accountVerified = new URL(pubUrl).origin === new URL(`https://${domain}`).origin
+        } catch { /* ignore */ }
+      }
+
       post = db.query('SELECT * FROM posts WHERE article_url LIKE ?').get(`%${slug}%`) as Record<string, unknown> | null
       if (!post) {
         post = db.query('SELECT * FROM posts WHERE platform_id = ?').get(slug) as Record<string, unknown> | null
       }
+
+      if (post && !accountVerified && config.platform === 'substack') {
+        accountVerified = true
+      }
     } else {
-      return { signatureVerified: false, error: 'Unrecognized URL format. Provide a Twitter or Substack post URL.' }
+      return { accountVerified: false, signatureVerified: false, error: 'Unrecognized URL format. Provide a Twitter or Substack post URL.' }
     }
 
     if (!post) {
-      return { signatureVerified: false, error: 'Post not created by agent.' }
+      return { accountVerified, signatureVerified: false, error: 'Post not created by agent.' }
     }
 
     const urlSig = post.url_signature as string | null
     const sigAddr = post.signer_address as string | null
 
     if (!urlSig || !sigAddr) {
-      return { signatureVerified: false, error: 'Post exists but has no URL signature.' }
+      return { accountVerified, signatureVerified: false, error: 'Post exists but has no URL signature.' }
     }
 
     try {
       const signatureVerified = await ContentSigner.verify(url, urlSig, sigAddr)
-      return { signatureVerified }
+      return { accountVerified, signatureVerified }
     } catch {
-      return { signatureVerified: false, error: 'Signature verification failed.' }
+      return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
     }
   })
 

@@ -16,7 +16,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedValue, setCopiedValue] = useState<string | null>(null)
-  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null)
   const seenEventKeys = useRef(new Set<string>())
 
   useEffect(() => {
@@ -215,21 +215,11 @@ export default function App() {
             <span className="state-dot" aria-hidden="true" />
             {stateLabel}
           </span>
-          <button className="button button-ghost" onClick={() => setVerifyOpen(true)}>
-            Verify
-          </button>
           <button className="button button-ghost" onClick={() => activateTab('editorial')}>
             {bootstrap.copy.secondaryCtaLabel}
           </button>
         </div>
       </header>
-
-      {verifyOpen && (
-        <VerifyModal
-          evmAddress={bootstrap.transparency.wallets.evm}
-          onClose={() => setVerifyOpen(false)}
-        />
-      )}
 
       <main className="page">
         <section className="hero card-dark">
@@ -268,6 +258,17 @@ export default function App() {
             <p className="hero-motto">{bootstrap.identity.motto}</p>
           </div>
         </section>
+
+        <VerificationSection
+          evmAddress={bootstrap.transparency.wallets.evm}
+          sourceHash={bootstrap.meta.sourceHash}
+          compiledAt={bootstrap.meta.compiledAt}
+          repoUrl={bootstrap.meta.repoUrl}
+          gitCommit={bootstrap.meta.gitCommit}
+          compiledAgent={bootstrap.compiledAgent}
+          template={bootstrap.meta.template}
+          onResult={setVerifyResult}
+        />
 
         <section className="tab-root" id="tab-root">
           <div className="tab-header">
@@ -438,7 +439,7 @@ export default function App() {
               </article>
             ) : (
               <>
-                  <div className="editorial-grid">
+                <div className="editorial-grid">
                   {editorialPosts.map((post) => (
                     <EditorialCard key={post.id} post={post} />
                   ))}
@@ -454,6 +455,10 @@ export default function App() {
               </>
             )}
           </section>
+
+          {verifyResult && (
+            <VerifyResultModal result={verifyResult} onClose={() => setVerifyResult(null)} />
+          )}
 
           <section
             id="panel-worldview"
@@ -631,18 +636,252 @@ export default function App() {
 }
 
 interface VerifyResult {
+  accountVerified?: boolean
   signatureVerified: boolean
   error?: string
 }
 
-function VerifyModal({ evmAddress, onClose }: { evmAddress: string | null; onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null)
-  const [activeTab, setActiveTab] = useState<'link' | 'signature'>('link')
+function VerificationSection({
+  evmAddress,
+  sourceHash,
+  compiledAt,
+  repoUrl,
+  gitCommit,
+  compiledAgent,
+  template,
+  onResult,
+}: {
+  evmAddress: string | null
+  sourceHash: string
+  compiledAt: number
+  repoUrl: string | null
+  gitCommit: string | null
+  compiledAgent: Record<string, unknown>
+  template: string
+  onResult: (result: VerifyResult) => void
+}) {
   const [url, setUrl] = useState('')
   const [message, setMessage] = useState('')
   const [signature, setSignature] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<VerifyResult | null>(null)
+  const [loadingLink, setLoadingLink] = useState(false)
+  const [loadingSig, setLoadingSig] = useState(false)
+  const [sourceExpanded, setSourceExpanded] = useState(false)
+  const [keyCopied, setKeyCopied] = useState(false)
+
+  async function handleVerifyLink() {
+    setLoadingLink(true)
+    try {
+      const res = await fetch('/api/verify/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      onResult(await res.json() as VerifyResult)
+    } catch {
+      onResult({ signatureVerified: false, error: 'Request failed.' })
+    } finally {
+      setLoadingLink(false)
+    }
+  }
+
+  async function handleVerifySignature() {
+    setLoadingSig(true)
+    try {
+      const res = await fetch('/api/verify/signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, signature }),
+      })
+      onResult(await res.json() as VerifyResult)
+    } catch {
+      onResult({ signatureVerified: false, error: 'Request failed.' })
+    } finally {
+      setLoadingSig(false)
+    }
+  }
+
+  return (
+    <section className="verify-section">
+      <div className="tab-header">
+        <h2 className="section-title">Verification</h2>
+        <p className="tab-description">Verification utilities for this agent.</p>
+      </div>
+
+      <article className="card">
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Public key</h3>
+          <p className="verify-description">
+            The agent&rsquo;s EVM address used to sign all published content.
+          </p>
+        </div>
+        <div className="verify-row-value">
+          {evmAddress ? (
+            <button
+              className="verify-pubkey-btn"
+              onClick={() => {
+                void navigator.clipboard.writeText(evmAddress)
+                setKeyCopied(true)
+                setTimeout(() => setKeyCopied(false), 1800)
+              }}
+              title="Copy to clipboard"
+            >
+              <span className="mono-copy verify-pubkey">{evmAddress}</span>
+              <span className="verify-copy-icon">{keyCopied ? '\u2713' : '\u2398'}</span>
+            </button>
+          ) : (
+            <p className="mono-copy verify-pubkey">No EVM wallet configured</p>
+          )}
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Verify link</h3>
+          <p className="verify-description">
+            Paste a tweet or article URL to verify it was published by this agent.
+          </p>
+        </div>
+        <div className="verify-row-inputs">
+          <input
+            className="verify-input"
+            type="url"
+            placeholder="https://agent.substack.com/p/article-slug"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) void handleVerifyLink() }}
+          />
+          <button
+            className="verify-submit"
+            onClick={handleVerifyLink}
+            disabled={loadingLink || !url.trim()}
+          >
+            {loadingLink ? 'Verifying\u2026' : 'Verify'}
+          </button>
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Verify signature</h3>
+          <p className="verify-description">
+            Paste a message and its signature to verify it was signed by this agent{evmAddress ? ` (${evmAddress.slice(0, 6)}\u2026${evmAddress.slice(-4)})` : ''}.
+          </p>
+        </div>
+        <div className="verify-row-inputs">
+          <textarea
+            className="verify-textarea"
+            placeholder="Message content"
+            rows={2}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <input
+            className="verify-input"
+            type="text"
+            placeholder="0x signature"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && message.trim() && signature.trim()) void handleVerifySignature() }}
+          />
+          <button
+            className="verify-submit"
+            onClick={handleVerifySignature}
+            disabled={loadingSig || !message.trim() || !signature.trim()}
+          >
+            {loadingSig ? 'Verifying\u2026' : 'Verify'}
+          </button>
+        </div>
+      </div>
+
+      <hr className="verify-divider" />
+
+      <div className="verify-row">
+        <div className="verify-row-info">
+          <h3>Source code</h3>
+          <p className="verify-description">
+            Verify the agent&rsquo;s source code integrity. The source hash is a deterministic fingerprint
+            of the agent&rsquo;s soul and constitution at compile time.
+          </p>
+        </div>
+        <div className="verify-source-card">
+          <div className="verify-source-header">
+            <div className="verify-source-status">
+              <span className="verify-source-pill">{'\u2713'} Compiled</span>
+              <span className="meta-copy">{formatDateTime(compiledAt)}</span>
+            </div>
+          </div>
+          <div className="verify-source-tiles verify-source-tiles-top">
+            {repoUrl ? (
+              <a href={repoUrl} target="_blank" rel="noreferrer" className="verify-source-tile verify-source-tile-link">
+                <p className="verify-source-label">Repository</p>
+                <p className="verify-source-value">{repoUrl.replace(/^https?:\/\/github\.com\//, '')}</p>
+              </a>
+            ) : (
+              <div className="verify-source-tile">
+                <p className="verify-source-label">Repository</p>
+                <p className="verify-source-value meta-copy">Not available</p>
+              </div>
+            )}
+            {gitCommit ? (
+              <a
+                href={repoUrl ? `${repoUrl}/commit/${gitCommit}` : '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="verify-source-tile verify-source-tile-link"
+              >
+                <p className="verify-source-label">Commit</p>
+                <p className="verify-source-value mono-copy">{gitCommit.slice(0, 12)}</p>
+              </a>
+            ) : (
+              <div className="verify-source-tile">
+                <p className="verify-source-label">Commit</p>
+                <p className="verify-source-value meta-copy">Not available</p>
+              </div>
+            )}
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Template</p>
+              <p className="verify-source-value">{template}</p>
+            </div>
+          </div>
+          <div className="verify-source-tiles">
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Source hash</p>
+              <p className="verify-source-value mono-copy">{sourceHash}</p>
+            </div>
+            <div className="verify-source-tile">
+              <p className="verify-source-label">Compiled</p>
+              <p className="verify-source-value">{formatRelativeTime(compiledAt)}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="verify-source-toggle"
+            onClick={() => setSourceExpanded((v) => !v)}
+            aria-expanded={sourceExpanded}
+          >
+            {sourceExpanded ? 'Hide details' : 'Show details'}
+            <span className={`verify-source-chevron${sourceExpanded ? ' is-expanded' : ''}`}>{'\u203A'}</span>
+          </button>
+          {sourceExpanded && (
+            <div className="verify-source-details">
+              <p className="verify-source-label">Compiled agent JSON</p>
+              <pre className="verify-source-json">{JSON.stringify(compiledAgent, null, 2)}</pre>
+            </div>
+          )}
+        </div>
+      </div>
+      </article>
+    </section>
+  )
+}
+
+function VerifyResultModal({ result, onClose }: { result: VerifyResult; onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -656,109 +895,27 @@ function VerifyModal({ evmAddress, onClose }: { evmAddress: string | null; onClo
     if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose()
   }
 
-  async function handleSubmit() {
-    setLoading(true)
-    setResult(null)
-    try {
-      const endpoint = activeTab === 'link' ? '/api/verify/link' : '/api/verify/signature'
-      const body = activeTab === 'link' ? { url } : { message, signature }
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json() as VerifyResult
-      setResult(data)
-    } catch {
-      setResult({ signatureVerified: false, error: 'Request failed.' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const content = result ? (() => {
-    return (
-      <>
-        <p className={`verify-result-title ${result.signatureVerified ? 'verify-check' : 'verify-fail'}`}>
-          {result.signatureVerified ? 'Verification succeeded' : 'Verification failed'}
-        </p>
-        <ul className="verify-result-list">
-          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
-            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
-          </li>
-          {result.error && <li className="verify-fail">{result.error}</li>}
-        </ul>
-        <button className="verify-submit" onClick={() => setResult(null)}>Try another</button>
-      </>
-    )
-  })() : (
-    <>
-      <div className="verify-tabs">
-        <button
-          className={`verify-tab${activeTab === 'link' ? ' is-active' : ''}`}
-          onClick={() => setActiveTab('link')}
-        >
-          Verify link
-        </button>
-        <button
-          className={`verify-tab${activeTab === 'signature' ? ' is-active' : ''}`}
-          onClick={() => setActiveTab('signature')}
-        >
-          Verify signature
-        </button>
-      </div>
-
-      {activeTab === 'link' ? (
-        <>
-          <p className="verify-description">
-            Paste a tweet or article URL to verify it was published by this agent and cryptographically signed.
-          </p>
-          <input
-            className="verify-input"
-            type="url"
-            placeholder="https://agent.substack.com/p/article-slug"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </>
-      ) : (
-        <>
-          <p className="verify-description">
-            Paste the message content and its signature to verify it was signed by this agent
-            {evmAddress ? ` (${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)})` : ''}.
-          </p>
-          <textarea
-            className="verify-textarea"
-            placeholder="Message content"
-            rows={3}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-          <input
-            className="verify-input"
-            type="text"
-            placeholder="0x signature"
-            value={signature}
-            onChange={(e) => setSignature(e.target.value)}
-          />
-        </>
-      )}
-
-      <button
-        className="verify-submit"
-        onClick={handleSubmit}
-        disabled={loading || (activeTab === 'link' ? !url.trim() : !message.trim() || !signature.trim())}
-      >
-        {loading ? 'Verifying...' : 'Verify'}
-      </button>
-    </>
-  )
+  const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
 
   return (
     <div className="verify-backdrop" onMouseDown={handleBackdropClick}>
       <div className="verify-modal" ref={panelRef}>
         <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
-        {content}
+        <p className={`verify-result-title ${allPassed ? 'verify-check' : 'verify-fail'}`}>
+          {allPassed ? 'Verification succeeded' : 'Verification failed'}
+        </p>
+        <ul className="verify-result-list">
+          {result.accountVerified !== undefined && (
+            <li className={result.accountVerified ? 'verify-check' : 'verify-fail'}>
+              {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
+            </li>
+          )}
+          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+          </li>
+          {result.error && <li className="verify-fail">{result.error}</li>}
+        </ul>
+        <button className="verify-submit" onClick={onClose}>Close</button>
       </div>
     </div>
   )

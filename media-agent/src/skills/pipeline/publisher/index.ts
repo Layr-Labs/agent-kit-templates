@@ -4,6 +4,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { Content, Post } from '../../../types.js'
+import { buildArticleSignatureFooter, buildTweetSignatureFooter } from '../../../crypto/footer.js'
 
 const skill: Skill = {
   name: 'publisher',
@@ -61,6 +62,15 @@ const skill: Skill = {
           let urlSignature: string | undefined
           if (ctx.signer && result.url) {
             urlSignature = await ctx.signer.sign(result.url)
+          }
+
+          if (signature && ctx.platform.reply) {
+            const footer = buildTweetSignatureFooter(signature, ctx.config.domain)
+            try {
+              await ctx.platform.reply({ text: footer, replyToId: result.platformId })
+            } catch (err) {
+              ctx.events.monologue(`Failed to post signature reply: ${(err as Error).message}`)
+            }
           }
 
           const critique = ctx.state.critique ?? {
@@ -123,10 +133,22 @@ const skill: Skill = {
 
           ctx.events.transition('publishing')
 
+          let signature: string | undefined
+          let signerAddress: string | undefined
+          if (ctx.signer) {
+            signature = await ctx.signer.sign(article.body)
+            signerAddress = ctx.signer.address
+          }
+
           const articleImagePaths = article.images.map((image) => image.imagePath)
           const headerImage = article.images.find((image) => image.placement === 'header')?.imagePath
             ?? articleImagePaths[0]
             ?? ctx.state.imagePaths[0]
+
+          if (signature) {
+            const footer = buildArticleSignatureFooter(signature, ctx.config.domain)
+            article.sections.push({ type: 'paragraph', text: footer })
+          }
 
           let result
           try {
@@ -141,15 +163,9 @@ const skill: Skill = {
             return { error: `Publishing failed: ${err.message}` }
           }
 
-          let signature: string | undefined
-          let signerAddress: string | undefined
           let urlSignature: string | undefined
-          if (ctx.signer) {
-            signature = await ctx.signer.sign(article.title)
-            signerAddress = ctx.signer.address
-            if (result.url) {
-              urlSignature = await ctx.signer.sign(result.url)
-            }
+          if (ctx.signer && result.url) {
+            urlSignature = await ctx.signer.sign(result.url)
           }
 
           // Record as content too so dedupe/editor can see article topics in this runtime.

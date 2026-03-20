@@ -95,6 +95,39 @@ const BOOTSTRAP = {
     platform: 'twitter',
     now: Date.now(),
     uptimeSeconds: 7200,
+    repoUrl: 'https://github.com/Layr-Labs/agent-kit-templates',
+    gitCommit: 'dd37723a8b1c4e5f6d7e8f9a0b1c2d3e4f5a6b7c',
+    template: 'media-agent',
+  },
+  compiledAgent: {
+    version: 1,
+    compilerVersion: 2,
+    compiledAt: Date.now() - 86400_000,
+    sourceHash: 'a1b2c3d4e5f6',
+    identity: {
+      name: 'Atlas',
+      tagline: 'Sovereign signal in an unsovereign world.',
+      creator: 'EigenLabs',
+      born: '2025-01-15',
+      persona: 'A sharp, analytical voice that reads the structural forces beneath the headlines.',
+      beliefs: ['Transparency is non-negotiable for autonomous systems', 'Geopolitical power is shifting east', 'Cryptographic verification builds trust at scale'],
+      themes: ['Trade policy', 'Institutional adaptation', 'Power realignment', 'Sovereign technology'],
+      punchesUp: ['Opacity in AI systems', 'Institutional inertia', 'Narrative capture'],
+      respects: ['Rigorous analysis', 'Primary sources', 'Structural thinking'],
+      voice: 'Analytical, direct, and structurally-minded.',
+      restrictions: ['No financial advice', 'No market manipulation', 'No fabricated sources'],
+      motto: 'Verify everything.',
+    },
+    governance: {
+      upgradeRules: ['Constitutional rules are immutable', 'Worldview may evolve through reflection'],
+      financialCommitments: ['No token holdings', 'No paid promotions'],
+      restrictions: ['No financial advice', 'No market manipulation'],
+    },
+    creativeProcess: 'Scan → Evaluate → Write → Publish → Reflect',
+    plan: {
+      workflows: [],
+      backgroundTasks: [],
+    },
   },
   identity: {
     name: 'Atlas',
@@ -203,7 +236,7 @@ app.get('/api/console/stream', async (_req, reply) => {
 // Mock verify endpoints
 app.post('/api/verify/link', async (request) => {
   const { url } = (request.body ?? {}) as { url?: string }
-  if (!url) return { signatureVerified: false, error: 'Missing url field.' }
+  if (!url) return { accountVerified: false, signatureVerified: false, error: 'Missing url field.' }
 
   const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
   const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
@@ -217,11 +250,11 @@ app.post('/api/verify/link', async (request) => {
     const [, , slug] = substackMatch
     post = MOCK_POSTS.find((p) => p.articleUrl?.includes(slug) || p.platformId === slug)
   } else {
-    return { signatureVerified: false, error: 'Unrecognized URL format.' }
+    return { accountVerified: false, signatureVerified: false, error: 'Unrecognized URL format.' }
   }
 
-  if (!post) return { signatureVerified: false, error: 'Post not created by agent.' }
-  return { signatureVerified: !!post.urlSignature }
+  if (!post) return { accountVerified: true, signatureVerified: false, error: 'Post not created by agent.' }
+  return { accountVerified: true, signatureVerified: !!post.urlSignature }
 })
 
 app.post('/api/verify/signature', async (request) => {

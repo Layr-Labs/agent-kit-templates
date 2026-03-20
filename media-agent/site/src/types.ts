@@ -45,7 +45,11 @@ export interface SiteBootstrapPayload {
     platform: string
     now: number
     uptimeSeconds: number
+    repoUrl: string | null
+    gitCommit: string | null
+    template: string
   }
+  compiledAgent: Record<string, unknown>
   identity: {
     name: string
     tagline: string

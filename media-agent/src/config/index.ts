@@ -118,6 +118,7 @@ export async function createConfig(configPath?: string) {
     },
 
     browserPublishMode: process.env.BROWSER_PUBLISH_MODE || 'cdp',
+    domain: process.env.DOMAIN ?? 'localhost',
     dataDir: '.data',
   }
 
