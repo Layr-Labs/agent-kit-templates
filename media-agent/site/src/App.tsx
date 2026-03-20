@@ -215,22 +215,21 @@ export default function App() {
             <span className="state-dot" aria-hidden="true" />
             {stateLabel}
           </span>
-          <div className="verify-wrapper">
-            <button className="button button-ghost" onClick={() => setVerifyOpen((v) => !v)}>
-              Verify
-            </button>
-            {verifyOpen && (
-              <VerifyDropdown
-                evmAddress={bootstrap.transparency.wallets.evm}
-                onClose={() => setVerifyOpen(false)}
-              />
-            )}
-          </div>
+          <button className="button button-ghost" onClick={() => setVerifyOpen(true)}>
+            Verify
+          </button>
           <button className="button button-ghost" onClick={() => activateTab('editorial')}>
             {bootstrap.copy.secondaryCtaLabel}
           </button>
         </div>
       </header>
+
+      {verifyOpen && (
+        <VerifyModal
+          evmAddress={bootstrap.transparency.wallets.evm}
+          onClose={() => setVerifyOpen(false)}
+        />
+      )}
 
       <main className="page">
         <section className="hero card-dark">
@@ -637,8 +636,8 @@ interface VerifyResult {
   error?: string
 }
 
-function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null)
+function VerifyModal({ evmAddress, onClose }: { evmAddress: string | null; onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null)
   const [activeTab, setActiveTab] = useState<'link' | 'signature'>('link')
   const [url, setUrl] = useState('')
   const [message, setMessage] = useState('')
@@ -647,12 +646,16 @@ function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; on
   const [result, setResult] = useState<VerifyResult | null>(null)
 
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
   }, [onClose])
+
+  function handleBackdropClick(e: React.MouseEvent) {
+    if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose()
+  }
 
   async function handleSubmit() {
     setLoading(true)
@@ -674,11 +677,10 @@ function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; on
     }
   }
 
-  if (result) {
+  const content = result ? (() => {
     const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
     return (
-      <div className="verify-dropdown" ref={ref}>
-        <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+      <>
         <p className={`verify-result-title ${allPassed ? 'verify-check' : 'verify-fail'}`}>
           {allPassed ? 'Verification succeeded' : 'Verification failed'}
         </p>
@@ -694,13 +696,10 @@ function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; on
           {result.error && <li className="verify-fail">{result.error}</li>}
         </ul>
         <button className="verify-submit" onClick={() => setResult(null)}>Try another</button>
-      </div>
+      </>
     )
-  }
-
-  return (
-    <div className="verify-dropdown" ref={ref}>
-      <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+  })() : (
+    <>
       <div className="verify-tabs">
         <button
           className={`verify-tab${activeTab === 'link' ? ' is-active' : ''}`}
@@ -724,7 +723,7 @@ function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; on
           <input
             className="verify-input"
             type="url"
-            placeholder="https://x.com/agent/status/123"
+            placeholder="https://agent.substack.com/p/article-slug"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
@@ -759,6 +758,15 @@ function VerifyDropdown({ evmAddress, onClose }: { evmAddress: string | null; on
       >
         {loading ? 'Verifying...' : 'Verify'}
       </button>
+    </>
+  )
+
+  return (
+    <div className="verify-backdrop" onMouseDown={handleBackdropClick}>
+      <div className="verify-modal" ref={panelRef}>
+        <button className="verify-close" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+        {content}
+      </div>
     </div>
   )
 }

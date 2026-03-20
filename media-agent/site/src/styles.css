@@ -853,21 +853,24 @@ img {
   text-align: center;
 }
 
-.verify-wrapper {
-  position: relative;
+.verify-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
 }
 
-.verify-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 380px;
-  padding: 20px;
+.verify-modal {
+  position: relative;
+  width: min(420px, calc(100% - 32px));
+  padding: 32px 24px 24px;
   background: var(--color-panel-strong);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
   box-shadow: var(--color-shadow);
-  z-index: 50;
   display: grid;
   gap: 12px;
 }
@@ -1068,19 +1071,7 @@ img {
     width: 100%;
   }
 
-  .verify-wrapper {
-    position: static;
-    width: 100%;
-  }
-
-  .verify-dropdown {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    border-radius: 0;
-    z-index: 60;
-    overflow-y: auto;
-    align-content: start;
+  .verify-modal {
+    width: calc(100% - 28px);
   }
 }
