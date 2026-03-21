@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "sec-filings",
+  "version": "1.0.0",
+  "description": "Search and read SEC EDGAR filings — 10-K, 10-Q, 8-K, S-1, and other public company disclosures",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_sec_filings", "description": "Search SEC EDGAR for company filings by name, ticker, or keyword" },
+    { "name": "get_sec_filing_metadata", "description": "Get metadata for a specific SEC filing by accession number" },
+    { "name": "read_sec_filing", "description": "Read the full text of an SEC filing document" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_sec_filings", "get_sec_filing_metadata", "read_sec_filing"]
+  },
+  "enabled": true
+}
