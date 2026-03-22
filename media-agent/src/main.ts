@@ -1,7 +1,7 @@
 /**
  * Media Agent
  *
- * A general-purpose autonomous media agent. Defined by three files:
+ * A general-purpose sovereign media agent. Defined by three files:
  * - SOUL.md — who the agent is (personality, beliefs, style)
  * - PROCESS.md — how the agent creates (creative workflows)
  * - constitution.md — governance rules (immutable constraints)

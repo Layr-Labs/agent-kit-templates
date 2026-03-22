@@ -119,7 +119,7 @@ export class AgentCompiler {
 }
 
 function COMPILER_SYSTEM_PROMPT(skills: string[]): string {
-  return `You are an agent compiler. You take three documents describing an autonomous agent and compile them into structured data:
+  return `You are an agent compiler. You take three documents describing a sovereign agent and compile them into structured data:
 
 1. SOUL — who the agent is (personality, beliefs, style, engagement behavior)
 2. PROCESS — how the agent creates content (creative workflows described in plain text)
@@ -168,7 +168,7 @@ The PROCESS document describes the agent's creative flows in plain text. You mus
    - An instruction (natural language description of what the agent should do, referencing available tools)
    - A priority (higher = checked first)
 
-**IMPORTANT:** The workflow \`instruction\` field should be a clear, detailed natural language description of the creative flow. The agent will receive this instruction along with all available tools and execute it autonomously. Include quality thresholds, variant counts, and any specific requirements mentioned in the PROCESS.
+**IMPORTANT:** The workflow \`instruction\` field should be a clear, detailed natural language description of the creative flow. The agent will receive this instruction along with all available tools and execute it independently. Include quality thresholds, variant counts, and any specific requirements mentioned in the PROCESS.
 
 ## Bootstrap Workflow
 

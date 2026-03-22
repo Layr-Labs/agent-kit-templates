@@ -1,6 +1,6 @@
 # Media Agent
 
-A general-purpose framework for building autonomous media agents. Define your agent with three files, plug in a platform, and let it run.
+A general-purpose framework for building sovereign media agents. Define your agent with three files, plug in a platform, and let it run.
 
 ## The Three Files
 

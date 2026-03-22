@@ -58,7 +58,7 @@ export class AgentLoop {
         stopWhen: stepCountIs(15),
         system: `${this.personaPrompt}
 
-You are the operational brain of an autonomous agent. Each tick you can use your tools to take actions.
+You are the operational brain of a sovereign agent. Each tick you can use your tools to take actions.
 
 Available tools: ${toolNames.join(', ')}
 

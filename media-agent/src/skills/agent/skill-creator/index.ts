@@ -121,7 +121,7 @@ const skill: Skill = {
           try {
             const { text: generatedCode } = await generateText({
               model: ctx.config.model('ideation'),
-              system: `You are a TypeScript skill code generator for an autonomous agent framework.
+              system: `You are a TypeScript skill code generator for a sovereign agent framework.
 
 You write self-contained skill files that follow this exact pattern:
 
