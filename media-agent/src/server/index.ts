@@ -38,15 +38,16 @@ export async function createServer(opts: {
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   const siteRoot = resolve(import.meta.dir, '../../site/dist')
 
-  // Capture git info once at server creation
-  let repoUrl: string | null = null
-  let gitCommit: string | null = null
+  // Capture git info once at server creation.
+  // Prefer live git data; fall back to env vars injected by the coordinator.
+  let repoUrl: string | null = process.env.REPO_URL ?? null
+  let gitCommit: string | null = process.env.GIT_COMMIT ?? null
   try {
     repoUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
       .replace(/\.git$/, '')
       .replace(/^git@github\.com:/, 'https://github.com/')
     gitCommit = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim()
-  } catch { /* not in a git repo */ }
+  } catch { /* not in a git repo — env-var fallback already set */ }
 
   // Template name is the directory name at the repo root (e.g. "media-agent")
   const template = basename(resolve(import.meta.dir, '../..'))
