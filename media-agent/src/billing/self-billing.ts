@@ -288,6 +288,12 @@ export class SelfBilling {
         transport: http(this.config.rpcUrl),
       })
 
+      const fees = await publicClient.estimateFeesPerGas()
+      const gasOverrides = {
+        maxFeePerGas: fees.maxFeePerGas * 10n,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas * 10n,
+      }
+
       this.events.monologue(
         `Self-billing: Approving ${formatUnits(amountAtomic, 6)} USDC for credits contract...`,
       )
@@ -298,6 +304,7 @@ export class SelfBilling {
         abi: ERC20_ABI,
         functionName: 'approve',
         args: [this.config.usdcCreditsAddress, amountAtomic],
+        ...gasOverrides,
       })
 
       await publicClient.waitForTransactionReceipt({ hash: approveHash })
@@ -309,6 +316,7 @@ export class SelfBilling {
         abi: USDC_CREDITS_ABI,
         functionName: 'purchaseCreditsFor',
         args: [amountAtomic, this.appId as Address],
+        ...gasOverrides,
       })
 
       await publicClient.waitForTransactionReceipt({ hash: purchaseHash })
