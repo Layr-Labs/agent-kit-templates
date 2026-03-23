@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto'
-import { join } from 'path'
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Skill, SkillContext } from '../../types.js'
 import type { SubstackClient } from 'substack-skill'
 import { buildPostBody, uploadAndAttachImage, makeUpdatePublicationExecute, makeUpdateProfileExecute, replyToComment, commentOnPost } from '../../../platform/substack/helpers.js'
+import { buildArticleSignatureFooter } from '../../../crypto/footer.js'
 import { trackPost } from './tracking.js'
 
 const skill: Skill = {
@@ -139,6 +140,12 @@ const skill: Skill = {
           audience: z.enum(['everyone', 'only_paid', 'founding', 'only_free']).default('everyone'),
         }),
         execute: async ({ title, subtitle, sections, audience }) => {
+          if (ctx.signer) {
+            const contentText = sections.map(s => s.text ?? s.items?.join('\n') ?? '').join('\n')
+            const signature = await ctx.signer.sign(contentText)
+            const footer = buildArticleSignatureFooter(signature, ctx.config.domain)
+            sections = [...sections, { type: 'paragraph', text: footer }]
+          }
           const body = await buildPostBody(sections)
           const draft = await client.createDraft({ title, subtitle, body, audience })
           return { id: draft.id, title: draft.draft_title, slug: draft.slug }
