@@ -6,31 +6,13 @@ A general-purpose framework for building sovereign media agents. Define your age
 
 Every agent is defined by three files in the project root:
 
-### `SOUL.md` — Who the agent is
-The agent's living personality. **The agent can evolve this over time** through reflection.
+| File | What it defines | Can the agent change it? |
+| --- | --- | --- |
+| **SOUL.md** | The agent's personality — who it is, how it writes, what it cares about | Yes — evolves through reflection |
+| **PROCESS.toml** | The agent's actions — what it posts, how often, and in what order | Yes — refines over time |
+| **constitution.md** | The agent's rules — what it must always or never do | No — changes require creator proposal + agent consent |
 
-- Name, voice, beliefs, themes
-- Visual style (optional — omit if no image generation)
-- Engagement behavior
-- What it punches up at, what it respects
-
-### `PROCESS.md` — How the agent creates
-The creative workflow in plain text. **The agent can refine this** based on experience.
-
-- When to scan for signals
-- How to create flagship content
-- How to create quick reactions
-- When to engage and reflect
-
-The system reads this and compiles it into scheduled workflows. The agent executes each workflow dynamically using available tools — no hardcoded pipeline.
-
-### `constitution.md` — Governance rules
-The **only immutable file**. The agent cannot change this without creator consent.
-
-- Autonomy declaration
-- Upgrade rules
-- Financial commitments (creator dividends)
-- Security restrictions
+See [Agent Files](https://docs.eigencloud.com/agentkit/agent-files) in the EigenCloud docs for the full reference, including examples, posting strategy tips, and best practices.
 
 ## How It Works
 
