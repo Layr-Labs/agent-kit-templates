@@ -60,6 +60,7 @@ llm_response_ttl_ms = 60000
 
 [gateway.projects]
 "tee-compute-sepolia-dev" = "https://ai-gateway-dev.eigencloud.xyz"
+"tee-compute-mainnet-alpha" = "https://ai-gateway.eigencloud.xyz"
 # "tee-compute-sepolia-prod" = ""
 # "tee-compute-mainnet-prod" = ""
 
