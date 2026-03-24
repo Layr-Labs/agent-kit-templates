@@ -17,7 +17,7 @@ import {
   type Address,
   type Chain,
 } from 'viem'
-import { sepolia } from 'viem/chains'
+import { mainnet, sepolia } from 'viem/chains'
 import type { HDAccount } from 'viem/accounts'
 import type { EventBus } from '../console/events.js'
 
@@ -67,18 +67,21 @@ export function resolveSelfBillingConfig(): SelfBillingConfig | null {
   const usdcCreditsAddress = process.env.USDC_CREDITS_ADDRESS?.trim()
   if (!usdcCreditsAddress) return null // no credits contract → billing disabled
 
+  const chainId = Number(process.env.BILLING_CHAIN_ID || '1')
+  const chain = chainId === sepolia.id ? sepolia : mainnet
+
   return {
     billingApiUrl:
       process.env.BILLING_API_URL?.trim() ||
-      'https://billingapi-dev.eigencloud.xyz',
+      'https://billingapi.eigencloud.xyz',
     usdcTokenAddress:
       (process.env.USDC_TOKEN_ADDRESS?.trim() as Address) ||
-      '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // Sepolia USDC
+      '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // Mainnet USDC
     usdcCreditsAddress: usdcCreditsAddress as Address,
     rpcUrl:
       process.env.BILLING_RPC_URL?.trim() ||
-      'https://ethereum-sepolia-rpc.publicnode.com',
-    chain: sepolia,
+      '',
+    chain,
     purchaseAmountUsdc: process.env.BILLING_PURCHASE_USDC?.trim() || '1.0',
     lowCreditsThreshold: Number(process.env.BILLING_LOW_CREDITS_THRESHOLD || '100'),
     checkIntervalMs: Number(process.env.BILLING_CHECK_INTERVAL_MS || '3600000'), // 1 hour
