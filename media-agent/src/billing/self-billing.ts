@@ -82,7 +82,7 @@ export function resolveSelfBillingConfig(): SelfBillingConfig | null {
       process.env.BILLING_RPC_URL?.trim() ||
       '',
     chain,
-    purchaseAmountUsdc: process.env.BILLING_PURCHASE_USDC?.trim() || '1.0',
+    purchaseAmountUsdc: process.env.BILLING_PURCHASE_USDC?.trim() || '10.0',
     lowCreditsThreshold: Number(process.env.BILLING_LOW_CREDITS_THRESHOLD || '100'),
     checkIntervalMs: Number(process.env.BILLING_CHECK_INTERVAL_MS || '3600000'), // 1 hour
   }
