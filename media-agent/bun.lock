@@ -10,7 +10,7 @@
         "@fastify/multipart": "^9.4.0",
         "@fastify/static": "^9.0.0",
         "@layr-labs/ai-gateway-provider": "^1.0.0",
-        "@layr-labs/ecloud-sdk": "~0.4.0-dev.4",
+        "@layr-labs/ecloud-sdk": "0.4.0",
         "@solana/web3.js": "^1.98.4",
         "ai": "^6.0.111",
         "bip39": "^3.1.0",
@@ -308,7 +308,7 @@
 
     "@layr-labs/ai-gateway-provider": ["@layr-labs/ai-gateway-provider@1.0.0", "", { "dependencies": { "@ai-sdk/provider": "^3.0.8", "@ai-sdk/provider-utils": "^4.0.17", "@layr-labs/ecloud-sdk": "~0.4.0-dev.2" }, "peerDependencies": { "ai": "^6.0.0" } }, "sha512-JXnxPB6o67U5bnqzheSYf5ZiYWOKi0/0ZJd9o7gpaKDs2KDsPFH3O4BIm3NQ34L21fc7pshByXrabRPiEGIK6A=="],
 
-    "@layr-labs/ecloud-sdk": ["@layr-labs/ecloud-sdk@0.4.0-dev.4", "", { "dependencies": { "@inquirer/prompts": "^7.10.1", "@napi-rs/keyring": "^1.0.5", "axios": "^1.13.2", "chalk": "^5.6.2", "dockerode": "^4.0.9", "form-data": "^4.0.5", "handlebars": "^4.7.8", "jose": "^6.1.2", "js-yaml": "^4.1.1", "node-forge": "^1.3.2", "posthog-node": "^5.17.2", "siwe": "^2.3.2", "viem": "^2.38.6" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["react"] }, "sha512-xoPZPdcRhfF4p7rSa5WdtHcOn8JGy5qD10Ive8Gg6WTYWDacT/A/L0eC0GOme+Rd/VFn1h5EehYeBStD8X3dSA=="],
+    "@layr-labs/ecloud-sdk": ["@layr-labs/ecloud-sdk@0.4.0", "", { "dependencies": { "@inquirer/prompts": "^7.10.1", "@napi-rs/keyring": "^1.0.5", "axios": "^1.13.2", "chalk": "^5.6.2", "dockerode": "^4.0.9", "form-data": "^4.0.5", "handlebars": "^4.7.8", "jose": "^6.1.2", "js-yaml": "^4.1.1", "node-forge": "^1.3.2", "posthog-node": "^5.17.2", "siwe": "^2.3.2", "viem": "^2.38.6" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["react"] }, "sha512-nYNt+209G/kXmDgAwyOq102r9UE1OQPqkMZ8uj2mzP4cEA9JRveYQwEDcz11c2pdqMGE3whLFGem3Ym+8EoN9Q=="],
 
     "@lukeed/ms": ["@lukeed/ms@2.0.2", "", {}, ""],
 
@@ -1188,6 +1188,8 @@
 
     "@layr-labs/ai-gateway-provider/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@4.0.19", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@standard-schema/spec": "^1.1.0", "eventsource-parser": "^3.0.6" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-3eG55CrSWCu2SXlqq2QCsFjo3+E7+Gmg7i/oRVoSZzIodTuDSfLb3MRje67xE9RFea73Zao7Lm4mADIfUETKGg=="],
 
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk": ["@layr-labs/ecloud-sdk@0.4.0-dev.4", "", { "dependencies": { "@inquirer/prompts": "^7.10.1", "@napi-rs/keyring": "^1.0.5", "axios": "^1.13.2", "chalk": "^5.6.2", "dockerode": "^4.0.9", "form-data": "^4.0.5", "handlebars": "^4.7.8", "jose": "^6.1.2", "js-yaml": "^4.1.1", "node-forge": "^1.3.2", "posthog-node": "^5.17.2", "siwe": "^2.3.2", "viem": "^2.38.6" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["react"] }, "sha512-xoPZPdcRhfF4p7rSa5WdtHcOn8JGy5qD10Ive8Gg6WTYWDacT/A/L0eC0GOme+Rd/VFn1h5EehYeBStD8X3dSA=="],
+
     "@layr-labs/ecloud-sdk/viem": ["viem@2.47.0", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.0", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-jU5e1E1s5E5M1y+YrELDnNar/34U8NXfVcRfxtVETigs2gS1vvW2ngnBoQUGBwLnNr0kNv+NUu4m10OqHByoFw=="],
 
     "bcrypt-pbkdf/tweetnacl": ["tweetnacl@0.14.5", "", {}, "sha512-KXXFFdAbFXY4geFIwoyNK+f5Z1b7swfXABfL7HXCmoIWMKU3dmS26672A4EeQtDzLKy7SXmfBu51JolvEKwtGA=="],
@@ -1256,6 +1258,8 @@
 
     "@aws-crypto/util/@smithy/util-utf8/@smithy/util-buffer-from": ["@smithy/util-buffer-from@2.2.0", "", { "dependencies": { "@smithy/is-array-buffer": "^2.2.0", "tslib": "^2.6.2" } }, ""],
 
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk/viem": ["viem@2.47.0", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.0", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-jU5e1E1s5E5M1y+YrELDnNar/34U8NXfVcRfxtVETigs2gS1vvW2ngnBoQUGBwLnNr0kNv+NUu4m10OqHByoFw=="],
+
     "@layr-labs/ecloud-sdk/viem/@noble/curves": ["@noble/curves@1.9.1", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, ""],
 
     "@layr-labs/ecloud-sdk/viem/ox": ["ox@0.14.0", "", { "dependencies": { "@adraffy/ens-normalize": "^1.11.0", "@noble/ciphers": "^1.3.0", "@noble/curves": "1.9.1", "@noble/hashes": "^1.8.0", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "abitype": "^1.2.3", "eventemitter3": "5.0.1" }, "peerDependencies": { "typescript": ">=5.4.0" }, "optionalPeers": ["typescript"] }, "sha512-WLOB7IKnmI3Ol6RAqY7CJdZKl8QaI44LN91OGF1061YIeN6bL5IsFcdp7+oQShRyamE/8fW/CBRWhJAOzI35Dw=="],
@@ -1286,6 +1290,10 @@
 
     "@aws-crypto/util/@smithy/util-utf8/@smithy/util-buffer-from/@smithy/is-array-buffer": ["@smithy/is-array-buffer@2.2.0", "", { "dependencies": { "tslib": "^2.6.2" } }, ""],
 
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk/viem/@noble/curves": ["@noble/curves@1.9.1", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, ""],
+
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk/viem/ox": ["ox@0.14.0", "", { "dependencies": { "@adraffy/ens-normalize": "^1.11.0", "@noble/ciphers": "^1.3.0", "@noble/curves": "1.9.1", "@noble/hashes": "^1.8.0", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "abitype": "^1.2.3", "eventemitter3": "5.0.1" }, "peerDependencies": { "typescript": ">=5.4.0" }, "optionalPeers": ["typescript"] }, "sha512-WLOB7IKnmI3Ol6RAqY7CJdZKl8QaI44LN91OGF1061YIeN6bL5IsFcdp7+oQShRyamE/8fW/CBRWhJAOzI35Dw=="],
+
     "@layr-labs/ecloud-sdk/viem/ox/@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, ""],
 
     "@layr-labs/ecloud-sdk/viem/ox/eventemitter3": ["eventemitter3@5.0.1", "", {}, ""],
@@ -1297,5 +1305,9 @@
     "substack-skill/viem/ox/@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, ""],
 
     "substack-skill/viem/ox/eventemitter3": ["eventemitter3@5.0.1", "", {}, ""],
+
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk/viem/ox/@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, ""],
+
+    "@layr-labs/ai-gateway-provider/@layr-labs/ecloud-sdk/viem/ox/eventemitter3": ["eventemitter3@5.0.1", "", {}, ""],
   }
 }
