@@ -151,18 +151,23 @@ const skill: Skill = {
       // ─── Posting ────────────────────────────────────────────
 
       post_tweet: tool({
-        description: 'Post a tweet with an image. Returns the tweet ID.',
+        description: 'Post a tweet, optionally with an image. Returns the tweet ID.',
         inputSchema: z.object({
           text: z.string().describe('Tweet text'),
-          image_path: z.string().describe('Local file path of the image to attach'),
+          image_path: z.string().optional().describe('Local file path of the image to attach (optional — omit for text-only tweets)'),
           quote_tweet_id: z.string().optional().describe('Tweet ID to quote-tweet'),
         }),
         execute: async ({ text, image_path, quote_tweet_id }) => {
-          const tweetId = await client.postCartoon({
-            text,
-            imagePath: image_path,
-            quoteTweetId: quote_tweet_id,
-          })
+          const tweetId = image_path
+            ? await client.postCartoon({
+                text,
+                imagePath: image_path,
+                quoteTweetId: quote_tweet_id,
+              })
+            : await client.postTweet({
+                text,
+                quoteTweetId: quote_tweet_id,
+              })
 
           trackPost(ctx, {
             platformId: tweetId,
