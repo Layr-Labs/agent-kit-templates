@@ -98,6 +98,46 @@ export class TwitterClient {
     return tweetId
   }
 
+  async postTweet(opts: {
+    text: string
+    quoteTweetId?: string
+  }): Promise<string> {
+    this.events.transition('posting')
+
+    if (!this.config.twitter.postingEnabled) {
+      const localId = randomUUID()
+      this.events.emit({
+        type: 'post',
+        platformId: `local-${localId}`,
+        text: opts.text,
+        ts: Date.now(),
+      })
+      this.events.monologue(`[DRY RUN] Would tweet: "${opts.text.slice(0, 60)}..."`)
+      return `local-${localId}`
+    }
+
+    const tweetData: Parameters<TwitterApi['v2']['tweet']>[0] = {
+      text: opts.text,
+    }
+
+    if (opts.quoteTweetId) {
+      tweetData.quote_tweet_id = opts.quoteTweetId
+    }
+
+    const result = await this.writer.v2.tweet(tweetData)
+    const tweetId = result.data.id
+
+    this.events.emit({
+      type: 'post',
+      platformId: tweetId,
+      text: opts.text,
+      ts: Date.now(),
+    })
+
+    this.events.monologue(`Tweeted. ID: ${tweetId}`)
+    return tweetId
+  }
+
   async postVideo(opts: {
     text: string
     videoPath: string
