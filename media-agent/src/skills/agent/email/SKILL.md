@@ -18,4 +18,4 @@ Provides email capabilities via the EigenMail SDK (`eigenmail-sdk`).
 
 - `eigenmail-sdk` package installed
 - `EIGENMAIL_PRIVATE_KEY` environment variable set
-- `EIGENMAIL_API_URL` environment variable (defaults to https://api.eigenagents.org)
+- `EIGENMAIL_API_URL` environment variable (defaults to https://eigenmail-mainnet-alpha-api.eigenagents.org)
