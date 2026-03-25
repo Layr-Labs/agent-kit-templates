@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
-import { Output } from 'ai'
+import { Output, generateText } from 'ai'
 import { z } from 'zod'
+import { jsonrepair } from 'jsonrepair'
 import { JsonStore } from '../store/json-store.js'
 import type { Config } from '../config/index.js'
 import type { CompiledAgent, ProcessPlan } from './types.js'
@@ -85,33 +86,7 @@ export class AgentCompiler {
 
     console.log('Compiling agent identity from SOUL.md + constitution.md...')
 
-    const MAX_COMPILE_ATTEMPTS = 3
-    let object: z.infer<typeof identitySchema> | null = null
-    let lastError: Error | null = null
-
-    for (let attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS; attempt++) {
-      try {
-        const result = await this.runInference({
-          operation: 'compile_agent',
-          modelId: this.config.modelId('compilation'),
-          model: this.config.model('compilation'),
-          output: Output.object({ schema: identitySchema }),
-          system: IDENTITY_COMPILER_PROMPT,
-          prompt: `## SOUL (who the agent is)\n\n${soul}\n\n## CONSTITUTION (governance rules)\n\n${constitution}`,
-          providerOptions: {
-            anthropic: { cacheControl: { type: 'ephemeral' } },
-          },
-        })
-        object = result.output
-        break
-      } catch (err) {
-        lastError = err as Error
-        const isParseError = /JSONParseError|NoObjectGenerated|JSON Parse/i.test((err as Error).message || '')
-        if (!isParseError || attempt === MAX_COMPILE_ATTEMPTS) throw err
-        console.warn(`  Compilation attempt ${attempt}/${MAX_COMPILE_ATTEMPTS} failed (JSON parse error), retrying...`)
-      }
-    }
-    if (!object) throw lastError ?? new Error('Failed to compile agent identity')
+    const { output: object } = await this.compileWithRepair(soul, constitution)
 
     const compiled: CompiledAgent = {
       version: 1,
@@ -130,6 +105,51 @@ export class AgentCompiler {
     console.log(`Agent identity compiled: ${object.identity.name}`)
 
     return compiled
+  }
+
+  /**
+   * Try structured output first. If the LLM returns broken JSON (common with
+   * prose containing literal double quotes), fall back to text generation +
+   * jsonrepair + schema validation.
+   */
+  private async compileWithRepair(
+    soul: string,
+    constitution: string,
+  ): Promise<{ output: z.infer<typeof identitySchema> }> {
+    const prompt = `## SOUL (who the agent is)\n\n${soul}\n\n## CONSTITUTION (governance rules)\n\n${constitution}`
+    const providerOptions = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
+
+    try {
+      const result = await this.runInference({
+        operation: 'compile_agent',
+        modelId: this.config.modelId('compilation'),
+        model: this.config.model('compilation'),
+        output: Output.object({ schema: identitySchema }),
+        system: IDENTITY_COMPILER_PROMPT,
+        prompt,
+        providerOptions,
+      })
+      if (result.output) return { output: result.output }
+    } catch (err) {
+      const msg = (err as Error).message || ''
+      if (!/JSONParseError|NoObjectGenerated|JSON Parse/i.test(msg)) throw err
+      console.warn('  Structured output failed with JSON parse error, falling back to text + repair...')
+    }
+
+    const { text } = await this.runInference({
+      operation: 'compile_agent',
+      modelId: this.config.modelId('compilation'),
+      model: this.config.model('compilation'),
+      system: IDENTITY_COMPILER_PROMPT + '\n\nRespond with ONLY valid JSON, no markdown fences.',
+      prompt,
+      providerOptions,
+    })
+
+    const jsonText = (text ?? '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    const repaired = jsonrepair(jsonText)
+    const parsed = identitySchema.parse(JSON.parse(repaired))
+    console.log('  Identity compiled via text + jsonrepair fallback.')
+    return { output: parsed }
   }
 
   private computeSourceHash(input: { soul: string; constitution: string }): string {
