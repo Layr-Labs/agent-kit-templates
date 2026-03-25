@@ -40,8 +40,8 @@ export async function createServer(opts: {
 
   // Capture git info once at server creation.
   // Prefer live git data; fall back to env vars injected by the coordinator.
-  let repoUrl: string | null = process.env.REPO_URL ?? null
-  let gitCommit: string | null = process.env.GIT_COMMIT ?? null
+  let repoUrl: string | null = process.env.REPO_URL || null
+  let gitCommit: string | null = process.env.GIT_COMMIT || null
   try {
     repoUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim()
       .replace(/\.git$/, '')
