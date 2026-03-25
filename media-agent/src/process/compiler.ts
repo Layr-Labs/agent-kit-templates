@@ -85,18 +85,33 @@ export class AgentCompiler {
 
     console.log('Compiling agent identity from SOUL.md + constitution.md...')
 
-    const { output: object } = await this.runInference({
-      operation: 'compile_agent',
-      modelId: this.config.modelId('compilation'),
-      model: this.config.model('compilation'),
-      output: Output.object({ schema: identitySchema }),
-      system: IDENTITY_COMPILER_PROMPT,
-      prompt: `## SOUL (who the agent is)\n\n${soul}\n\n## CONSTITUTION (governance rules)\n\n${constitution}`,
-      providerOptions: {
-        anthropic: { cacheControl: { type: 'ephemeral' } },
-      },
-    })
-    if (!object) throw new Error('Failed to compile agent identity')
+    const MAX_COMPILE_ATTEMPTS = 3
+    let object: z.infer<typeof identitySchema> | null = null
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS; attempt++) {
+      try {
+        const result = await this.runInference({
+          operation: 'compile_agent',
+          modelId: this.config.modelId('compilation'),
+          model: this.config.model('compilation'),
+          output: Output.object({ schema: identitySchema }),
+          system: IDENTITY_COMPILER_PROMPT,
+          prompt: `## SOUL (who the agent is)\n\n${soul}\n\n## CONSTITUTION (governance rules)\n\n${constitution}`,
+          providerOptions: {
+            anthropic: { cacheControl: { type: 'ephemeral' } },
+          },
+        })
+        object = result.output
+        break
+      } catch (err) {
+        lastError = err as Error
+        const isParseError = /JSONParseError|NoObjectGenerated|JSON Parse/i.test((err as Error).message || '')
+        if (!isParseError || attempt === MAX_COMPILE_ATTEMPTS) throw err
+        console.warn(`  Compilation attempt ${attempt}/${MAX_COMPILE_ATTEMPTS} failed (JSON parse error), retrying...`)
+      }
+    }
+    if (!object) throw lastError ?? new Error('Failed to compile agent identity')
 
     const compiled: CompiledAgent = {
       version: 1,
