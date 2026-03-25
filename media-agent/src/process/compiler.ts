@@ -131,8 +131,15 @@ export class AgentCompiler {
       })
       if (result.output) return { output: result.output }
     } catch (err) {
-      const msg = (err as Error).message || ''
-      if (!/JSONParseError|NoObjectGenerated|JSON Parse/i.test(msg)) throw err
+      const error = err as Error
+      const msg = error.message || ''
+      const stack = error.stack || ''
+      const parseFailure =
+        /jsonparseerror|json parsing failed|json parse/i.test(msg) ||
+        /no object generated|could not parse the response/i.test(msg) ||
+        /NoObjectGeneratedError|AI_NoObjectGeneratedError|AI_JSONParseError/i.test(stack)
+
+      if (!parseFailure) throw err
       console.warn('  Structured output failed with JSON parse error, falling back to text + repair...')
     }
 
