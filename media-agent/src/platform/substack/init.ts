@@ -12,6 +12,7 @@ import type { BrowserLike } from '../../browser/types.js'
 import { generateTrackedText } from '../../ai/tracking.js'
 import { buildPersonaPrompt } from '../../prompts/identity.js'
 import { makeUpdatePublicationExecute, makeUpdateProfileExecute } from './helpers.js'
+import { getEigenMailClientOptions } from '../eigenmail.js'
 import {
   describeOtpCandidates,
   extractSubstackOtpCandidates,
@@ -727,9 +728,26 @@ async function loginViaBrowser(
 ): Promise<{ cookies: CookieEntry[]; email: string }> {
   const { EigenMailClient } = await import('eigenmail-sdk')
 
-  const mail = new EigenMailClient({ privateKey })
+  const clientOpts = getEigenMailClientOptions(privateKey)
+  events.monologue(`[eigenmail-debug] Creating EigenMailClient: apiUrl=${clientOpts.apiUrl} domain=${clientOpts.domain}`)
+  const mail = new EigenMailClient(clientOpts)
+  events.monologue(`[eigenmail-debug] Calling login()...`)
   const loginResult = await mail.login()
-  const email = loginResult.email ?? (await mail.me()).email
+  events.monologue(`[eigenmail-debug] login() returned: email=${loginResult.email ?? '(null)'} hasToken=${!!loginResult.token}`)
+  let email: string
+  if (loginResult.email) {
+    email = loginResult.email
+  } else {
+    events.monologue(`[eigenmail-debug] login() email was null, calling me()...`)
+    try {
+      const meResult = await mail.me()
+      events.monologue(`[eigenmail-debug] me() returned: email=${meResult.email} address=${meResult.address}`)
+      email = meResult.email
+    } catch (meError) {
+      events.monologue(`[eigenmail-debug] me() failed: ${meError instanceof Error ? meError.message : String(meError)}`)
+      throw meError
+    }
+  }
   events.monologue(`Login email: ${email}`)
 
   // Navigate to substack.com to establish Cloudflare session
@@ -1008,9 +1026,20 @@ async function createEigenMailBrowserFallbackContext(privateKey: `0x${string}`):
   tools: Record<string, any>
 }> {
   const { EigenMailClient } = await import('eigenmail-sdk')
-  const mail = new EigenMailClient({ privateKey })
+  const clientOpts = getEigenMailClientOptions(privateKey)
+  console.log(`[eigenmail-debug] autopilot fallback: apiUrl=${clientOpts.apiUrl} domain=${clientOpts.domain}`)
+  const mail = new EigenMailClient(clientOpts)
   const loginResult = await mail.login()
-  const email = loginResult.email ?? (await mail.me()).email
+  console.log(`[eigenmail-debug] autopilot login(): email=${loginResult.email ?? '(null)'} hasToken=${!!loginResult.token}`)
+  let email: string
+  if (loginResult.email) {
+    email = loginResult.email
+  } else {
+    console.log(`[eigenmail-debug] autopilot login() email null, calling me()...`)
+    const meResult = await mail.me()
+    console.log(`[eigenmail-debug] autopilot me(): email=${meResult.email} address=${meResult.address}`)
+    email = meResult.email
+  }
 
   const summarizeEmail = (message: {
     subject?: string

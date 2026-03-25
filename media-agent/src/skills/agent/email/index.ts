@@ -1,5 +1,6 @@
 import type { Skill, SkillContext } from '../../types.js'
 import { mnemonicToSeedSync } from 'bip39'
+import { getEigenMailClientOptions } from '../../../platform/eigenmail.js'
 
 const skill: Skill = {
   name: 'email',
@@ -32,12 +33,15 @@ const skill: Skill = {
     try {
       const { EigenMailClient, eigenMailTools } = await import('eigenmail-sdk')
 
-      const client = new EigenMailClient({
-        privateKey: privateKey as `0x${string}`,
-        apiUrl: process.env.EIGENMAIL_API_URL ?? 'https://api.eigenagents.org',
-      })
+      const clientOpts = getEigenMailClientOptions(privateKey as `0x${string}`)
+      console.log(`[eigenmail-debug] Email skill: apiUrl=${clientOpts.apiUrl} domain=${clientOpts.domain}`)
+      const client = new EigenMailClient(clientOpts)
 
+      console.log(`[eigenmail-debug] Email skill: calling login()...`)
       const loginResult = await client.login()
+      console.log(`[eigenmail-debug] Email skill: login() email=${loginResult.email ?? '(null)'} hasToken=${!!loginResult.token}`)
+
+      console.log(`[eigenmail-debug] Email skill: calling me()...`)
       const me = await client.me()
       console.log(`Email skill: ${me.email} (${me.address})`)
 
