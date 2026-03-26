@@ -211,6 +211,10 @@ export function getCostTracker(): CostTracker | null {
   return tracker
 }
 
+export function resetCostTracker(): void {
+  tracker = null
+}
+
 export async function generateTrackedText(
   options: Record<string, unknown> & { operation: string; modelId?: string },
   runGenerateText: typeof generateText = generateText,
