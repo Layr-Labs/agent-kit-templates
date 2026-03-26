@@ -331,30 +331,44 @@ export async function createServer(opts: {
     const urlSig = post.url_signature as string | null
     const sigAddr = post.signer_address as string | null
 
-    if (!urlSig || !sigAddr) {
-      return { accountVerified, signatureVerified: false, error: 'Post exists but has no URL signature.' }
-    }
-
     // Normalize the URL to the canonical form used when signing.
     // Twitter adapter signs https://x.com/i/status/<id> but users paste
     // https://x.com/<username>/status/<id>.  Substack signs the
     // canonical_url but users may paste open.substack.com, custom-domain,
     // or query-param variants.  Use the stored article_url for Substack
     // (it IS the string that was signed) and reconstruct for Twitter.
-    let verifyUrl = url
-    if (twitterMatch) {
-      const [, , tweetId] = twitterMatch
-      verifyUrl = `https://x.com/i/status/${tweetId}`
-    } else if (substackMatch && post.article_url) {
-      verifyUrl = String(post.article_url)
+    if (urlSig && sigAddr) {
+      let verifyUrl = url
+      if (twitterMatch) {
+        const [, , tweetId] = twitterMatch
+        verifyUrl = `https://x.com/i/status/${tweetId}`
+      } else if (substackMatch && post.article_url) {
+        verifyUrl = String(post.article_url)
+      }
+
+      try {
+        const signatureVerified = await ContentSigner.verify(verifyUrl, urlSig, sigAddr)
+        return { accountVerified, signatureVerified }
+      } catch {
+        return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
+      }
     }
 
-    try {
-      const signatureVerified = await ContentSigner.verify(verifyUrl, urlSig, sigAddr)
-      return { accountVerified, signatureVerified }
-    } catch {
-      return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
+    // Fallback for posts published before URL signing was added:
+    // verify the content signature against the stored post text.
+    const contentSig = post.signature as string | null
+    if (contentSig && sigAddr) {
+      try {
+        const signatureVerified = await ContentSigner.verify(
+          String(post.text ?? ''), contentSig, sigAddr,
+        )
+        return { accountVerified, signatureVerified }
+      } catch {
+        return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
+      }
     }
+
+    return { accountVerified }
   })
 
   // Verify raw signature
