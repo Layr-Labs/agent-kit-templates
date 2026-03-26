@@ -32,11 +32,12 @@ export async function createServer(opts: {
   executor: ProcessExecutor
   wallets?: { evm: string; solana: string }
   getSubstackPublicationUrl?: () => Promise<string | null>
+  siteRoot?: string
 }) {
   const { events, config, db, identity, compiled, skills, executor, wallets, getSubstackPublicationUrl } = opts
   const app = Fastify({ logger: false })
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
-  const siteRoot = resolve(import.meta.dir, '../../site/dist')
+  const siteRoot = opts.siteRoot ?? resolve(import.meta.dir, '../../site/dist')
 
   // Capture git info once at server creation.
   // Prefer live git data; fall back to env vars injected by the coordinator.
