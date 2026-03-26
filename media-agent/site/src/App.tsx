@@ -630,7 +630,7 @@ export default function App() {
 
 interface VerifyResult {
   accountVerified?: boolean
-  signatureVerified: boolean
+  signatureVerified?: boolean
   error?: string
 }
 
@@ -860,7 +860,9 @@ function VerificationSection({
 }
 
 function VerifyInlineResult({ result }: { result: VerifyResult }) {
-  const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
+  const accountOk = result.accountVerified === undefined || result.accountVerified
+  const signatureOk = result.signatureVerified === undefined || result.signatureVerified
+  const allPassed = accountOk && signatureOk && !result.error
 
   return (
     <div className={`verify-inline-result ${allPassed ? 'verify-inline-pass' : 'verify-inline-fail'}`}>
@@ -873,9 +875,11 @@ function VerifyInlineResult({ result }: { result: VerifyResult }) {
             {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
           </li>
         )}
-        <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
-          {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
-        </li>
+        {result.signatureVerified !== undefined && (
+          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+          </li>
+        )}
         {result.error && <li className="verify-fail">{result.error}</li>}
       </ul>
     </div>
