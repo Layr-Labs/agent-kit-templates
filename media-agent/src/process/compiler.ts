@@ -257,7 +257,7 @@ Extract identity fields from the SOUL document's markdown sections:
   <mapping section="## Punches Up" field="punchesUp">Who/what the agent challenges</mapping>
   <mapping section="## Respects" field="respects">Who/what the agent respects</mapping>
   <mapping section="## Motto" field="motto">Single-line motto</mapping>
-  <mapping section="### Platform Restrictions + ### Restrictions" field="restrictions">Content restrictions array — merge ALL restriction lines from both Platform and Creator sections</mapping>
+  <mapping section="### Platform Restrictions" field="restrictions">Content restrictions array from the platform constitution</mapping>
   <mapping field="persona">Combine all personality information into a coherent persona summary</mapping>
 </identity_extraction>
 
@@ -272,12 +272,9 @@ If not specified, omit the engagement field. Do not invent one.
 </engagement_extraction>
 
 <governance_extraction>
-Extract from the CONSTITUTION document. The constitution has two tiers:
-- "## Platform Governance" contains "### Sovereignty", "### Platform Restrictions"
-- "## Creator Governance" contains "### Upgrade Rules", "### Financial Commitments", "### Restrictions"
-Merge ALL restriction lines from BOTH "### Platform Restrictions" and "### Restrictions" into the restrictions array.
-  <mapping section="### Upgrade Rules" field="upgradeRules"/>
-  <mapping section="### Financial Commitments" field="financialCommitments"/>
-  <mapping section="### Platform Restrictions + ### Restrictions" field="restrictions"/>
-If a section is missing, provide reasonable defaults.
+Extract from the CONSTITUTION document. The constitution is platform-managed with a single tier:
+- "## Platform Governance" contains "### Sovereignty" and "### Platform Restrictions"
+Extract ALL restriction lines from "### Platform Restrictions" into the restrictions array.
+  <mapping section="### Platform Restrictions" field="restrictions"/>
+If upgradeRules or financialCommitments sections are missing, return empty arrays for those fields.
 </governance_extraction>`
