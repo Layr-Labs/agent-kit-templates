@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import { execSync } from 'child_process'
 import { basename, join, resolve } from 'path'
@@ -36,6 +37,12 @@ export async function createServer(opts: {
 }) {
   const { events, config, db, identity, compiled, skills, executor, wallets, getSubstackPublicationUrl } = opts
   const app = Fastify({ logger: false })
+
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: '15 minutes',
+  })
+
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   const siteRoot = opts.siteRoot ?? resolve(import.meta.dir, '../../site/dist')
 
