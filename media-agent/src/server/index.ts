@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import fastifyRateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import { execSync } from 'child_process'
 import { basename, join, resolve } from 'path'
@@ -36,6 +37,14 @@ export async function createServer(opts: {
 }) {
   const { events, config, db, identity, compiled, skills, executor, wallets, getSubstackPublicationUrl } = opts
   const app = Fastify({ logger: false })
+
+  // Rate limiting plugin (used for selected routes such as verification)
+  await app.register(fastifyRateLimit, {
+    max: 30,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.ip,
+  })
+
   const installedSkillsRoot = getInstalledSkillsRoot(config.dataDir)
   const siteRoot = opts.siteRoot ?? resolve(import.meta.dir, '../../site/dist')
 
@@ -281,7 +290,14 @@ export async function createServer(opts: {
   })
 
   // Verify link
-  app.post('/api/verify/link', async (request, reply) => {
+  app.post('/api/verify/link', {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  }, async (request, reply) => {
     const { url } = (request.body ?? {}) as { url?: string }
     if (!url || typeof url !== 'string') {
       reply.code(400)
