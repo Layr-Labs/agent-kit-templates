@@ -258,16 +258,6 @@ export default function App() {
           </div>
         </section>
 
-        <VerificationSection
-          evmAddress={bootstrap.transparency.wallets.evm}
-          sourceHash={bootstrap.meta.sourceHash}
-          compiledAt={bootstrap.meta.compiledAt}
-          repoUrl={bootstrap.meta.repoUrl}
-          gitCommit={bootstrap.meta.gitCommit}
-          compiledAgent={bootstrap.compiledAgent}
-          template={bootstrap.meta.template}
-        />
-
         <section className="tab-root" id="tab-root">
           <div className="tab-header">
             <div>
@@ -624,6 +614,15 @@ export default function App() {
             </div>
           </section>
         </section>
+
+        <VerificationSection
+          evmAddress={bootstrap.transparency.wallets.evm}
+          sourceHash={bootstrap.meta.sourceHash}
+          compiledAt={bootstrap.meta.compiledAt}
+          repoUrl={bootstrap.meta.repoUrl}
+          compiledAgent={bootstrap.compiledAgent}
+          template={bootstrap.meta.template}
+        />
       </main>
     </div>
   )
@@ -640,7 +639,6 @@ function VerificationSection({
   sourceHash,
   compiledAt,
   repoUrl,
-  gitCommit,
   compiledAgent,
   template,
 }: {
@@ -648,7 +646,6 @@ function VerificationSection({
   sourceHash: string
   compiledAt: number
   repoUrl: string | null
-  gitCommit: string | null
   compiledAgent: Record<string, unknown>
   template: string
 }) {
@@ -822,22 +819,6 @@ function VerificationSection({
             ) : (
               <div className="verify-source-tile">
                 <p className="verify-source-label">Repository</p>
-                <p className="verify-source-value meta-copy">Not available</p>
-              </div>
-            )}
-            {gitCommit ? (
-              <a
-                href={repoUrl ? `${repoUrl}/commit/${gitCommit}` : '#'}
-                target="_blank"
-                rel="noreferrer"
-                className="verify-source-tile verify-source-tile-link"
-              >
-                <p className="verify-source-label">Commit</p>
-                <p className="verify-source-value mono-copy">{gitCommit.slice(0, 12)}</p>
-              </a>
-            ) : (
-              <div className="verify-source-tile">
-                <p className="verify-source-label">Commit</p>
                 <p className="verify-source-value meta-copy">Not available</p>
               </div>
             )}
