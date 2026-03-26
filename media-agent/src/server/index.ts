@@ -288,7 +288,8 @@ export async function createServer(opts: {
     }
 
     const twitterMatch = url.match(/^https?:\/\/(?:x\.com|twitter\.com)\/([^/]+)\/status\/(\d+)/)
-    const substackMatch = url.match(/^https?:\/\/([^/]+)\/p\/([^/?#]+)/)
+    // Match standard (example.substack.com/p/slug) and open (open.substack.com/pub/name/p/slug) formats
+    const substackMatch = url.match(/^https?:\/\/([^/]+)\/(?:pub\/[^/]+\/)?p\/([^/?#]+)/)
 
     let accountVerified = false
     let post: Record<string, unknown> | null = null
@@ -334,8 +335,22 @@ export async function createServer(opts: {
       return { accountVerified, signatureVerified: false, error: 'Post exists but has no URL signature.' }
     }
 
+    // Normalize the URL to the canonical form used when signing.
+    // Twitter adapter signs https://x.com/i/status/<id> but users paste
+    // https://x.com/<username>/status/<id>.  Substack signs the
+    // canonical_url but users may paste open.substack.com, custom-domain,
+    // or query-param variants.  Use the stored article_url for Substack
+    // (it IS the string that was signed) and reconstruct for Twitter.
+    let verifyUrl = url
+    if (twitterMatch) {
+      const [, , tweetId] = twitterMatch
+      verifyUrl = `https://x.com/i/status/${tweetId}`
+    } else if (substackMatch && post.article_url) {
+      verifyUrl = String(post.article_url)
+    }
+
     try {
-      const signatureVerified = await ContentSigner.verify(url, urlSig, sigAddr)
+      const signatureVerified = await ContentSigner.verify(verifyUrl, urlSig, sigAddr)
       return { accountVerified, signatureVerified }
     } catch {
       return { accountVerified, signatureVerified: false, error: 'Signature verification failed.' }
