@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { EventBus } from '../src/console/events.js'
 import { createDatabase } from '../src/db/index.js'
 import { createServer } from '../src/server/index.js'
 import { SkillRegistry } from '../src/skills/registry.js'
-import { initCostTracker } from '../src/ai/tracking.js'
+import { initCostTracker, resetCostTracker } from '../src/ai/tracking.js'
 
 describe('agent site server', () => {
   let tempRoot = ''
@@ -16,6 +16,7 @@ describe('agent site server', () => {
   afterEach(async () => {
     await app?.close()
     db?.close()
+    resetCostTracker()
     if (tempRoot) await rm(tempRoot, { recursive: true, force: true })
     app = null
     db = null
@@ -153,6 +154,10 @@ describe('agent site server', () => {
     tempRoot = await mkdtemp(join(tmpdir(), 'media-agent-root-'))
     db = await createDatabase(join(tempRoot, 'agent.db'))
 
+    const fakeSiteDir = join(tempRoot, 'site-dist')
+    await mkdir(fakeSiteDir, { recursive: true })
+    await writeFile(join(fakeSiteDir, 'index.html'), '<!doctype html><html><body><div id="root"></div></body></html>')
+
     const events = new EventBus(join(tempRoot, 'events.jsonl'))
     await events.init()
 
@@ -164,6 +169,7 @@ describe('agent site server', () => {
         platform: 'substack',
       } as any,
       db,
+      siteRoot: fakeSiteDir,
       identity: {
         name: 'Peer',
         tagline: 'Testing',

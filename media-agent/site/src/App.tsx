@@ -258,16 +258,6 @@ export default function App() {
           </div>
         </section>
 
-        <VerificationSection
-          evmAddress={bootstrap.transparency.wallets.evm}
-          sourceHash={bootstrap.meta.sourceHash}
-          compiledAt={bootstrap.meta.compiledAt}
-          repoUrl={bootstrap.meta.repoUrl}
-          gitCommit={bootstrap.meta.gitCommit}
-          compiledAgent={bootstrap.compiledAgent}
-          template={bootstrap.meta.template}
-        />
-
         <section className="tab-root" id="tab-root">
           <div className="tab-header">
             <div>
@@ -624,6 +614,15 @@ export default function App() {
             </div>
           </section>
         </section>
+
+        <VerificationSection
+          evmAddress={bootstrap.transparency.wallets.evm}
+          sourceHash={bootstrap.meta.sourceHash}
+          compiledAt={bootstrap.meta.compiledAt}
+          repoUrl={bootstrap.meta.repoUrl}
+          compiledAgent={bootstrap.compiledAgent}
+          template={bootstrap.meta.template}
+        />
       </main>
     </div>
   )
@@ -631,7 +630,7 @@ export default function App() {
 
 interface VerifyResult {
   accountVerified?: boolean
-  signatureVerified: boolean
+  signatureVerified?: boolean
   error?: string
 }
 
@@ -640,7 +639,6 @@ function VerificationSection({
   sourceHash,
   compiledAt,
   repoUrl,
-  gitCommit,
   compiledAgent,
   template,
 }: {
@@ -648,7 +646,6 @@ function VerificationSection({
   sourceHash: string
   compiledAt: number
   repoUrl: string | null
-  gitCommit: string | null
   compiledAgent: Record<string, unknown>
   template: string
 }) {
@@ -825,22 +822,6 @@ function VerificationSection({
                 <p className="verify-source-value meta-copy">Not available</p>
               </div>
             )}
-            {gitCommit ? (
-              <a
-                href={repoUrl ? `${repoUrl}/commit/${gitCommit}` : '#'}
-                target="_blank"
-                rel="noreferrer"
-                className="verify-source-tile verify-source-tile-link"
-              >
-                <p className="verify-source-label">Commit</p>
-                <p className="verify-source-value mono-copy">{gitCommit.slice(0, 12)}</p>
-              </a>
-            ) : (
-              <div className="verify-source-tile">
-                <p className="verify-source-label">Commit</p>
-                <p className="verify-source-value meta-copy">Not available</p>
-              </div>
-            )}
             <div className="verify-source-tile">
               <p className="verify-source-label">Template</p>
               <p className="verify-source-value">{template}</p>
@@ -879,7 +860,9 @@ function VerificationSection({
 }
 
 function VerifyInlineResult({ result }: { result: VerifyResult }) {
-  const allPassed = result.signatureVerified && (result.accountVerified === undefined || result.accountVerified)
+  const accountOk = result.accountVerified === undefined || result.accountVerified
+  const signatureOk = result.signatureVerified === undefined || result.signatureVerified
+  const allPassed = accountOk && signatureOk && !result.error
 
   return (
     <div className={`verify-inline-result ${allPassed ? 'verify-inline-pass' : 'verify-inline-fail'}`}>
@@ -892,9 +875,11 @@ function VerifyInlineResult({ result }: { result: VerifyResult }) {
             {result.accountVerified ? '\u2713' : '\u2717'} Account {result.accountVerified ? 'verified' : 'not verified'}
           </li>
         )}
-        <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
-          {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
-        </li>
+        {result.signatureVerified !== undefined && (
+          <li className={result.signatureVerified ? 'verify-check' : 'verify-fail'}>
+            {result.signatureVerified ? '\u2713' : '\u2717'} Signature {result.signatureVerified ? 'verified' : 'failed'}
+          </li>
+        )}
         {result.error && <li className="verify-fail">{result.error}</li>}
       </ul>
     </div>
