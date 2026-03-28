@@ -18,7 +18,7 @@ export interface VaultEntry {
  *
  * Holds delegation keys and integration credentials for users who have
  * opted into background task execution. Keys are:
- *  - Only in memory (hardware-encrypted by Intel TDX)
+ *  - Only in memory (hardware-encrypted by the TEE)
  *  - Evicted on TEE restart (users must re-authorize)
  *  - Invisible to the host OS and cloud operator
  */
