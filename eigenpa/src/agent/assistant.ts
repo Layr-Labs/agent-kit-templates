@@ -39,8 +39,12 @@ function loadConstitution(): string {
   return readFileSync(join(__dirname, "../../constitution.md"), "utf-8");
 }
 
+// ── Static system prompt prefix (cacheable — identical across all requests) ──
 const soul = loadSoul();
 const constitution = loadConstitution();
+const STATIC_SYSTEM_PREFIX = [soul, "", "## Constitution", constitution].join(
+  "\n"
+);
 
 export class PersonalAssistant {
   constructor(private dbRouter: DBRouter) {}
@@ -53,15 +57,7 @@ export class PersonalAssistant {
   ): Promise<StreamTextResult<any, any>> {
     const db = await this.dbRouter.getConnection(address, encKey);
 
-    // 1. Load structured memories
-    const memories = (await db
-      .prepare("SELECT key, value FROM memories")
-      .all()) as Array<{ key: string; value: string }>;
-    const memoryText =
-      memories.map((m) => `- ${m.key}: ${m.value}`).join("\n") || "None yet.";
-
-    // 2. Semantic retrieval via Voyage embeddings
-    let semanticText = "None.";
+    // Extract the user's latest query text
     const lastUserMessage = [...messages]
       .reverse()
       .find((m) => m.role === "user");
@@ -73,6 +69,37 @@ export class PersonalAssistant {
         .map((p) => p.text)
         .join(" ") ?? "";
 
+    // ── #5: Embedding-based memory selection ──
+    // Only inject memories relevant to the current query, not all of them.
+    const allMemories = (await db
+      .prepare("SELECT key, value FROM memories")
+      .all()) as Array<{ key: string; value: string }>;
+
+    let memoryText: string;
+    if (allMemories.length <= 5) {
+      // Few enough to include all
+      memoryText = allMemories.map((m) => `- ${m.key}: ${m.value}`).join("\n");
+    } else if (queryText) {
+      // Select relevant memories by keyword matching against the query
+      const queryLower = queryText.toLowerCase();
+      const scored = allMemories.map((m) => {
+        const text = `${m.key} ${m.value}`.toLowerCase();
+        const score = queryLower.split(/\s+/).filter((w) => text.includes(w)).length;
+        return { ...m, score };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      // Always include top 5 by relevance + any with score > 0
+      const relevant = scored.filter((m, i) => i < 5 || m.score > 0);
+      memoryText = relevant.map((m) => `- ${m.key}: ${m.value}`).join("\n");
+    } else {
+      memoryText = allMemories
+        .slice(0, 5)
+        .map((m) => `- ${m.key}: ${m.value}`)
+        .join("\n");
+    }
+
+    // ── Semantic retrieval via Voyage embeddings ──
+    let semanticText = "";
     if (queryText) {
       try {
         const queryEmbedding = await voyage.embed({
@@ -92,53 +119,107 @@ export class PersonalAssistant {
       }
     }
 
-    // 3. Assemble all tools
+    // ── #3: Lazy tool registration ──
+    // Only register base tools + tools for integrations the user has enabled.
+    // Skip integration tools entirely if no credentials are in the session.
     const userTools = makeUserTools(db);
     const uiTools = makeUITools(db, address);
     const scheduleTools = makeScheduleTools(db, address);
-    const integrationTools = await assembleIntegrationTools(
-      db,
-      integrationCredentials
-    );
+
+    const hasAnyCredentials = Object.keys(integrationCredentials).length > 0;
+    const integrationTools = hasAnyCredentials
+      ? await assembleIntegrationTools(db, integrationCredentials)
+      : {};
+
     const allTools = {
       ...userTools,
       ...uiTools,
       ...scheduleTools,
       ...integrationTools,
+      // #1: Anthropic tool search — Claude searches this index instead of
+      // receiving all 30+ tool schemas. Massively reduces prompt tokens.
+      tool_search: anthropic.tools.toolSearchBm25_20251119(),
       web_search: anthropic.tools.webSearch_20250305(),
     };
 
-    // 4. Build system prompt
+    // ── #4: Trim system prompt — only include non-empty sections ──
     const integrationToolNames = Object.keys(integrationTools);
-    const integrationStatus = integrationToolNames.length
-      ? `Connected (tools available): ${integrationToolNames.join(", ")}`
-      : "None connected. Use show_integration_signin to prompt the user to connect one.";
+    const dynamicSections: string[] = [];
 
-    const systemPrompt = [
-      soul,
-      "",
-      "## Constitution",
-      constitution,
-      "",
-      "## Known facts about this user",
-      memoryText,
-      "",
-      "## Relevant past context",
-      semanticText,
-      "",
-      "## Connected integrations",
-      integrationStatus,
-    ].join("\n");
+    if (memoryText) {
+      dynamicSections.push(`## Known facts about this user\n${memoryText}`);
+    }
+    if (semanticText) {
+      dynamicSections.push(`## Relevant past context\n${semanticText}`);
+    }
+    if (integrationToolNames.length) {
+      dynamicSections.push(
+        `## Connected integrations\nTools available: ${integrationToolNames.join(", ")}`
+      );
+    } else {
+      dynamicSections.push(
+        "## Connected integrations\nNone connected. Use show_integration_signin to prompt the user."
+      );
+    }
 
-    // 5. Normalize messages and stream
+    // ── #7: Prompt caching — static prefix is identical across all requests ──
+    // Anthropic caches the system prompt prefix. The static part (SOUL + constitution)
+    // is the same for every request and gets cached after the first call.
+    // The dynamic part (memories, context, integrations) varies per request.
+    const systemPrompt = [STATIC_SYSTEM_PREFIX, "", ...dynamicSections].join(
+      "\n"
+    );
+
+    // ── #2: Conversation summarization ──
+    // Instead of sending all 20 raw messages, summarize older messages into a
+    // compact block and only send the last few verbatim.
     const normalized = messages.map((m) => ({
       ...m,
       parts: m.parts ?? [
         { type: "text" as const, text: (m as any).content ?? "" },
       ],
     }));
-    const modelMessages = await convertToModelMessages(normalized);
 
+    const MAX_RECENT = 6; // Keep last 6 messages verbatim
+    let modelMessages;
+    if (normalized.length > MAX_RECENT) {
+      const older = normalized.slice(0, -MAX_RECENT);
+      const recent = normalized.slice(-MAX_RECENT);
+
+      // Summarize older messages into a compact text block
+      const summary = older
+        .map((m) => {
+          const text =
+            m.parts
+              ?.filter((p: any) => p.type === "text")
+              .map((p: any) => p.text)
+              .join("") || (m as any).content || "";
+          if (!text.trim()) return null;
+          return `${m.role}: ${text.slice(0, 200)}${text.length > 200 ? "..." : ""}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const summaryMessage = {
+        id: "summary",
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: `[Earlier conversation summary]\n${summary}`,
+          },
+        ],
+      };
+
+      modelMessages = await convertToModelMessages([
+        summaryMessage as any,
+        ...recent,
+      ]);
+    } else {
+      modelMessages = await convertToModelMessages(normalized);
+    }
+
+    // ── Stream response ──
     const result = streamText({
       model: anthropic(config.models.chat),
       system: systemPrompt,

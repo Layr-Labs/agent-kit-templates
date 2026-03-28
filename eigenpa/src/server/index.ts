@@ -74,9 +74,26 @@ export async function createServer() {
           session.integrationCredentials ?? {}
         );
 
-        // Hand off to raw response for SSE streaming (UI message format for useChat)
+        // Create a Web Response from the stream, then pipe to Node response
+        const webResponse = result.toUIMessageStreamResponse();
         reply.hijack();
-        result.pipeUIMessageStreamToResponse(reply.raw);
+        reply.raw.writeHead(webResponse.status, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+        const reader = webResponse.body!.getReader();
+        const pump = async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              reply.raw.end();
+              return;
+            }
+            reply.raw.write(value);
+          }
+        };
+        pump().catch(() => reply.raw.end());
       } catch (err) {
         req.log.error(err);
         return reply.code(500).send({ error: "Failed to process message" });
