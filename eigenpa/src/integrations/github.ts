@@ -381,6 +381,255 @@ export const github: IntegrationDefinition = {
           ].join("\n");
         },
       }),
+
+      github_list_commits: tool({
+        description:
+          "Get list of commits for a branch in a GitHub repository.",
+        inputSchema: z.object({
+          owner: z.string().describe("Repository owner"),
+          repo: z.string().describe("Repository name"),
+          sha: z
+            .string()
+            .optional()
+            .describe("Branch name, tag, or commit SHA"),
+          author: z
+            .string()
+            .optional()
+            .describe("Filter by author username or email"),
+          path: z
+            .string()
+            .optional()
+            .describe("Filter commits touching this file path"),
+          since: z
+            .string()
+            .optional()
+            .describe(
+              "Only commits after this date (ISO 8601)"
+            ),
+          perPage: z.number().optional().default(20),
+        }),
+        execute: async ({
+          owner,
+          repo,
+          sha,
+          author,
+          path,
+          since,
+          perPage,
+        }) => {
+          const params: Record<string, string> = {
+            per_page: String(perPage),
+          };
+          if (sha) params.sha = sha;
+          if (author) params.author = author;
+          if (path) params.path = path;
+          if (since) params.since = since;
+          const res = await ghFetch(
+            `/repos/${owner}/${repo}/commits`,
+            token,
+            params
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const commits = await res.json();
+          if (!commits.length) return "No commits found.";
+          return commits
+            .map(
+              (c: any) =>
+                `- \`${c.sha.slice(0, 7)}\` ${c.commit.message.split("\n")[0]} — @${c.author?.login ?? c.commit.author?.name ?? "?"} (${c.commit.author?.date ?? "?"})`
+            )
+            .join("\n");
+        },
+      }),
+
+      github_get_commit: tool({
+        description:
+          "Get details of a specific commit including its diff stats and changed files.",
+        inputSchema: z.object({
+          owner: z.string().describe("Repository owner"),
+          repo: z.string().describe("Repository name"),
+          sha: z
+            .string()
+            .describe("Commit SHA, branch name, or tag"),
+        }),
+        execute: async ({ owner, repo, sha }) => {
+          const res = await ghFetch(
+            `/repos/${owner}/${repo}/commits/${sha}`,
+            token
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const c = await res.json();
+          const files = (c.files ?? [])
+            .map(
+              (f: any) =>
+                `  ${f.status} ${f.filename} (+${f.additions} -${f.deletions})`
+            )
+            .join("\n");
+          return [
+            `**${c.commit.message}**`,
+            `Author: @${c.author?.login ?? c.commit.author?.name ?? "?"} (${c.commit.author?.date ?? "?"})`,
+            `Stats: +${c.stats?.additions ?? 0} -${c.stats?.deletions ?? 0} across ${c.files?.length ?? 0} files`,
+            "",
+            files,
+          ].join("\n");
+        },
+      }),
+
+      github_get_pr_diff: tool({
+        description: "Get the diff of a pull request.",
+        inputSchema: z.object({
+          owner: z.string().describe("Repository owner"),
+          repo: z.string().describe("Repository name"),
+          prNumber: z
+            .number()
+            .describe("Pull request number"),
+        }),
+        execute: async ({ owner, repo, prNumber }) => {
+          const res = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/vnd.github.diff",
+                "X-GitHub-Api-Version": "2022-11-28",
+              },
+            }
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const diff = await res.text();
+          if (diff.length > 10000)
+            return (
+              diff.slice(0, 10000) +
+              "\n\n... (diff truncated at 10,000 chars)"
+            );
+          return diff;
+        },
+      }),
+
+      github_get_pr_reviews: tool({
+        description: "Get reviews on a pull request.",
+        inputSchema: z.object({
+          owner: z.string().describe("Repository owner"),
+          repo: z.string().describe("Repository name"),
+          prNumber: z
+            .number()
+            .describe("Pull request number"),
+        }),
+        execute: async ({ owner, repo, prNumber }) => {
+          const res = await ghFetch(
+            `/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+            token
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const reviews = await res.json();
+          if (!reviews.length) return "No reviews yet.";
+          return reviews
+            .map(
+              (r: any) =>
+                `- @${r.user?.login ?? "?"} [${r.state}]: ${r.body || "(no comment)"}`
+            )
+            .join("\n");
+        },
+      }),
+
+      github_search_issues: tool({
+        description:
+          "Search for issues and pull requests across GitHub using GitHub's search syntax.",
+        inputSchema: z.object({
+          query: z
+            .string()
+            .describe(
+              "GitHub search query (e.g., 'is:issue is:open repo:owner/repo label:bug')"
+            ),
+          sort: z
+            .enum([
+              "comments",
+              "reactions",
+              "created",
+              "updated",
+            ])
+            .optional(),
+          order: z
+            .enum(["asc", "desc"])
+            .optional()
+            .default("desc"),
+          perPage: z.number().optional().default(10),
+        }),
+        execute: async ({ query, sort, order, perPage }) => {
+          const params: Record<string, string> = {
+            q: query,
+            per_page: String(perPage),
+            order: order ?? "desc",
+          };
+          if (sort) params.sort = sort;
+          const res = await ghFetch(
+            "/search/issues",
+            token,
+            params
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const data = await res.json();
+          if (!data.items?.length) return "No results found.";
+          return [
+            `Found ${data.total_count} results:`,
+            ...data.items.map(
+              (i: any) =>
+                `- ${i.repository_url?.split("/").slice(-2).join("/") ?? ""} #${i.number} [${i.state}] ${i.title}`
+            ),
+          ].join("\n");
+        },
+      }),
+
+      github_search_repos: tool({
+        description:
+          "Search for GitHub repositories by name, description, topics, or other criteria.",
+        inputSchema: z.object({
+          query: z
+            .string()
+            .describe("Repository search query"),
+          sort: z
+            .enum([
+              "stars",
+              "forks",
+              "updated",
+              "help-wanted-issues",
+            ])
+            .optional(),
+          order: z
+            .enum(["asc", "desc"])
+            .optional()
+            .default("desc"),
+          perPage: z.number().optional().default(10),
+        }),
+        execute: async ({ query, sort, order, perPage }) => {
+          const params: Record<string, string> = {
+            q: query,
+            per_page: String(perPage),
+            order: order ?? "desc",
+          };
+          if (sort) params.sort = sort;
+          const res = await ghFetch(
+            "/search/repositories",
+            token,
+            params
+          );
+          if (!res.ok)
+            return `GitHub API error: request failed (${res.status})`;
+          const data = await res.json();
+          if (!data.items?.length)
+            return "No repositories found.";
+          return data.items
+            .map(
+              (r: any) =>
+                `- **${r.full_name}**${r.private ? " (private)" : ""}: ${r.description ?? "no description"} [${r.language ?? "?"}, ${r.stargazers_count}\u2605]`
+            )
+            .join("\n");
+        },
+      }),
     };
   },
 };
