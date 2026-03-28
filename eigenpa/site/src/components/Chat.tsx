@@ -1,10 +1,14 @@
 import { useChat } from "@ai-sdk/react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { OAuthButton } from "./OAuthButton";
-import { EventList } from "./EventList";
-import { EmailPreview } from "./EmailPreview";
 import { Markdown } from "./Markdown";
 import { LocationButton } from "./LocationButton";
+import { CalendarAgenda } from "./CalendarAgenda";
+import { EmailInbox } from "./EmailInbox";
+import { EmailDetail } from "./EmailDetail";
+import { GitHubRepoCard } from "./GitHubRepoCard";
+import { GitHubIssueList } from "./GitHubIssueList";
+import { ScheduledTaskList } from "./ScheduledTaskList";
 
 export function Chat({ address }: { address: string }) {
   const { messages, sendMessage, status } = useChat({
@@ -91,10 +95,32 @@ export function Chat({ address }: { address: string }) {
         />
       );
     }
-    if (toolName === "show_event_list")
-      return <EventList events={result.events} />;
-    if (toolName === "show_email_preview")
-      return <EmailPreview emails={result.emails} />;
+    if (toolName === "show_calendar_agenda")
+      return <CalendarAgenda date={result.date} events={result.events} />;
+    if (toolName === "show_email_inbox")
+      return <EmailInbox emails={result.emails} />;
+    if (toolName === "show_email_detail")
+      return (
+        <EmailDetail
+          from={result.from}
+          to={result.to}
+          subject={result.subject}
+          date={result.date}
+          body={result.body}
+          attachments={result.attachments}
+        />
+      );
+    if (toolName === "show_github_repos")
+      return <GitHubRepoCard repos={result.repos} />;
+    if (toolName === "show_github_issues")
+      return <GitHubIssueList repo={result.repo} issues={result.issues} />;
+    if (toolName === "show_scheduled_tasks")
+      return (
+        <ScheduledTaskList
+          tasks={result.tasks}
+          delegated={result.delegated}
+        />
+      );
     return null;
   }
 

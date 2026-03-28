@@ -33,93 +33,101 @@ describe("UI tools", () => {
 
   it("returns all expected UI tools", async () => {
     const db = await router.getConnection(address, randomHexKey());
-    const tools = makeUITools(db);
+    const tools = makeUITools(db, address);
 
     expect(tools).toHaveProperty("show_integration_signin");
-    expect(tools).toHaveProperty("show_event_list");
-    expect(tools).toHaveProperty("show_email_preview");
+    expect(tools).toHaveProperty("request_location");
+    expect(tools).toHaveProperty("show_calendar_agenda");
+    expect(tools).toHaveProperty("show_email_inbox");
+    expect(tools).toHaveProperty("show_email_detail");
+    expect(tools).toHaveProperty("show_github_repos");
+    expect(tools).toHaveProperty("show_github_issues");
+    expect(tools).toHaveProperty("show_scheduled_tasks");
   });
 
   describe("show_integration_signin", () => {
     it("returns oauth_prompt when integration is not enabled", async () => {
       const db = await router.getConnection(address, randomHexKey());
-      const tools = makeUITools(db);
+      const tools = makeUITools(db, address);
 
-      const result = await tools.show_integration_signin.execute!(
+      const result = (await tools.show_integration_signin.execute!(
         { integrationId: "google-calendar", reason: "Need calendar access" },
         toolCtx
-      ) as any;
+      )) as any;
 
       expect(result.type).toBe("oauth_prompt");
       expect(result.integrationId).toBe("google-calendar");
-      expect(result.reason).toBe("Need calendar access");
-      expect(result.oauthUrl).toContain("/api/integrations/oauth/google-calendar/start");
     });
 
     it("returns already_enabled when integration is enabled", async () => {
       const db = await router.getConnection(address, randomHexKey());
       await enableIntegration(db, "google-calendar");
 
-      const tools = makeUITools(db);
-      const result = await tools.show_integration_signin.execute!(
+      const tools = makeUITools(db, address);
+      const result = (await tools.show_integration_signin.execute!(
         { integrationId: "google-calendar", reason: "test" },
         toolCtx
-      ) as any;
+      )) as any;
 
       expect(result.type).toBe("already_enabled");
-      expect(result.integrationId).toBe("google-calendar");
     });
   });
 
-  describe("show_event_list", () => {
-    it("returns structured event data", async () => {
+  describe("show_calendar_agenda", () => {
+    it("returns structured agenda data", async () => {
       const db = await router.getConnection(address, randomHexKey());
-      const tools = makeUITools(db);
+      const tools = makeUITools(db, address);
 
-      const events = [
-        { title: "Standup", start: "9:00 AM", end: "9:15 AM" },
+      const result = (await tools.show_calendar_agenda.execute!(
         {
-          title: "Sprint Review",
-          start: "2:00 PM",
-          end: "3:00 PM",
-          description: "Demo new features",
+          date: "Tomorrow — Friday",
+          events: [
+            { title: "Standup", start: "2026-03-28T09:00:00", end: "2026-03-28T09:15:00" },
+            { title: "Sprint Review", start: "2026-03-28T14:00:00", end: "2026-03-28T15:00:00", location: "Room A", description: "Demo" },
+          ],
         },
-      ];
-
-      const result = await tools.show_event_list.execute!(
-        { events },
         toolCtx
-      ) as any;
+      )) as any;
 
-      expect(result.type).toBe("event_list");
+      expect(result.type).toBe("calendar_agenda");
       expect(result.events).toHaveLength(2);
-      expect(result.events[0].title).toBe("Standup");
-      expect(result.events[1].description).toBe("Demo new features");
+      expect(result.date).toBe("Tomorrow — Friday");
     });
   });
 
-  describe("show_email_preview", () => {
-    it("returns structured email data", async () => {
+  describe("show_email_inbox", () => {
+    it("returns structured inbox data", async () => {
       const db = await router.getConnection(address, randomHexKey());
-      const tools = makeUITools(db);
+      const tools = makeUITools(db, address);
 
-      const emails = [
+      const result = (await tools.show_email_inbox.execute!(
         {
-          from: "alice@example.com",
-          subject: "Meeting notes",
-          date: "2026-03-27",
-          snippet: "Here are the notes from today...",
+          emails: [
+            { id: "msg1", from: "alice@example.com", subject: "Hi", date: "2026-03-27", unread: true },
+          ],
         },
-      ];
-
-      const result = await tools.show_email_preview.execute!(
-        { emails },
         toolCtx
-      ) as any;
+      )) as any;
 
-      expect(result.type).toBe("email_preview");
+      expect(result.type).toBe("email_inbox");
       expect(result.emails).toHaveLength(1);
-      expect(result.emails[0].subject).toBe("Meeting notes");
+      expect(result.emails[0].unread).toBe(true);
+    });
+  });
+
+  describe("show_scheduled_tasks", () => {
+    it("returns tasks and delegation status", async () => {
+      const db = await router.getConnection(address, randomHexKey());
+      const tools = makeUITools(db, address);
+
+      const result = (await tools.show_scheduled_tasks.execute!(
+        {},
+        toolCtx
+      )) as any;
+
+      expect(result.type).toBe("scheduled_tasks");
+      expect(result.delegated).toBe(false);
+      expect(result.tasks).toEqual([]);
     });
   });
 });

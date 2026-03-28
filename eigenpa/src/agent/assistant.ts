@@ -95,7 +95,7 @@ export class PersonalAssistant {
 
     // 3. Assemble tools
     const userTools = makeUserTools(db);
-    const uiTools = makeUITools(db);
+    const uiTools = makeUITools(db, address);
     const scheduleTools = makeScheduleTools(db, address);
     const integrationTools = await assembleIntegrationTools(
       db,
