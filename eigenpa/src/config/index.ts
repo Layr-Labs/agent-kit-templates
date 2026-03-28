@@ -7,7 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface Config {
   models: {
-    agent: string;
+    /** Model used for interactive chat */
+    chat: string;
+    /** Model used for background scheduled task execution */
+    task: string;
     embed: string;
   };
   server: {

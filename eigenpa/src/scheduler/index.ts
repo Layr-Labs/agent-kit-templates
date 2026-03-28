@@ -138,7 +138,7 @@ async function executeTask(
 
   // Run the task as an agent prompt
   const { text } = await generateText({
-    model: anthropic(config.models.agent),
+    model: anthropic(config.models.task),
     system: [
       `You are executing a scheduled background task for the user.`,
       `Task: ${task.name}`,

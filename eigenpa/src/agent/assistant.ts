@@ -121,7 +121,7 @@ export class PersonalAssistant {
 
     // 5. Stream response
     const result = streamText({
-      model: anthropic(config.models.agent),
+      model: anthropic(config.models.chat),
       system: systemPrompt,
       messages,
       tools: allTools,

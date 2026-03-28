@@ -1,8 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
-// Reset the cached config between tests
 async function freshLoadConfig() {
-  // Dynamic import with cache busting isn't possible, so we test the parsing logic directly
   const { parse } = await import("smol-toml");
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -16,7 +14,8 @@ describe("config", () => {
     const config = await freshLoadConfig();
 
     expect(config.models).toBeDefined();
-    expect(config.models.agent).toBeTypeOf("string");
+    expect(config.models.chat).toBeTypeOf("string");
+    expect(config.models.task).toBeTypeOf("string");
     expect(config.models.embed).toBeTypeOf("string");
 
     expect(config.server).toBeDefined();
@@ -35,18 +34,20 @@ describe("config", () => {
 
   it("has valid model identifiers", async () => {
     const config = await freshLoadConfig();
-    expect(config.models.agent).toContain("anthropic/");
+    expect(config.models.chat).toContain("anthropic/");
+    expect(config.models.task).toContain("anthropic/");
     expect(config.models.embed).toContain("voyage");
   });
 
-  it("supports base64-encoded config via env var", async () => {
+  it("chat and task models can be configured independently", async () => {
     const { parse } = await import("smol-toml");
     const toml = `
 [models]
-agent = "anthropic/test-model"
-embed = "voyage-test"
+chat = "anthropic/claude-sonnet-4-6-20250514"
+task = "anthropic/claude-haiku-4-5-20251001"
+embed = "voyage-3"
 [server]
-port = 4000
+port = 3000
 [session]
 cookie_name = "test"
 ttl_hours = 1
@@ -56,7 +57,8 @@ cipher = "aegis256"
 dir = "/tmp/test"
 `;
     const config = parse(toml) as any;
-    expect(config.server.port).toBe(4000);
-    expect(config.models.agent).toBe("anthropic/test-model");
+    expect(config.models.chat).toBe("anthropic/claude-sonnet-4-6-20250514");
+    expect(config.models.task).toBe("anthropic/claude-haiku-4-5-20251001");
+    expect(config.models.chat).not.toBe(config.models.task);
   });
 });
