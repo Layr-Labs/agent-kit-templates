@@ -10,6 +10,14 @@ import { authRoutes, SESSION_OPTIONS, type SessionData } from "./auth.js";
 import { DBRouter } from "../db/router.js";
 import { PersonalAssistant } from "../agent/assistant.js";
 import { loadConfig } from "../config/index.js";
+import {
+  listIntegrations,
+  getIntegration,
+  enableIntegration,
+  disableIntegration,
+  removeIntegration,
+  getEnabledIntegrations,
+} from "../integrations/index.js";
 
 const config = loadConfig();
 
@@ -43,11 +51,136 @@ export async function createServer() {
     const response = await assistant.handleMessage(
       session.address,
       session.encKey,
-      prompt
+      prompt,
+      session.integrationCredentials ?? {}
     );
 
     return { response };
   });
+
+  // ── Integration management ──
+
+  /** List all available integrations + which ones this user has enabled */
+  app.get("/api/integrations", async (req, reply) => {
+    const session = await getIronSession<SessionData>(
+      req.raw,
+      reply.raw,
+      SESSION_OPTIONS
+    );
+    if (!session.address || !session.encKey) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const db = await dbRouter.getConnection(session.address, session.encKey);
+    const enabled = await getEnabledIntegrations(db);
+    const enabledIds = new Set(enabled.map((r) => r.integration_id));
+    const creds = session.integrationCredentials ?? {};
+
+    const available = listIntegrations().map((def) => ({
+      id: def.id,
+      name: def.name,
+      description: def.description,
+      credentialFields: def.credentialFields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        secret: f.secret,
+      })),
+      enabled: enabledIds.has(def.id),
+      hasCredentials: !!creds[def.id],
+    }));
+
+    return { integrations: available };
+  });
+
+  /** Enable an integration and store its credentials in the session */
+  app.post<{
+    Body: {
+      integrationId: string;
+      credentials: Record<string, string>;
+      config?: Record<string, unknown>;
+    };
+  }>("/api/integrations/enable", async (req, reply) => {
+    const session = await getIronSession<SessionData>(
+      req.raw,
+      reply.raw,
+      SESSION_OPTIONS
+    );
+    if (!session.address || !session.encKey) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const { integrationId, credentials, config } = req.body;
+    const definition = getIntegration(integrationId);
+    if (!definition) {
+      return reply.code(404).send({ error: `Unknown integration: ${integrationId}` });
+    }
+
+    // Store integration config in the user's encrypted DB
+    const db = await dbRouter.getConnection(session.address, session.encKey);
+    await enableIntegration(db, integrationId, config ?? {});
+
+    // Store credentials in the session cookie (never on disk)
+    if (!session.integrationCredentials) {
+      session.integrationCredentials = {};
+    }
+    session.integrationCredentials[integrationId] = credentials;
+    await session.save();
+
+    return { ok: true, integrationId };
+  });
+
+  /** Disable an integration (keeps DB row, removes credentials from session) */
+  app.post<{ Body: { integrationId: string } }>(
+    "/api/integrations/disable",
+    async (req, reply) => {
+      const session = await getIronSession<SessionData>(
+        req.raw,
+        reply.raw,
+        SESSION_OPTIONS
+      );
+      if (!session.address || !session.encKey) {
+        return reply.code(401).send({ error: "Unauthorized" });
+      }
+
+      const { integrationId } = req.body;
+      const db = await dbRouter.getConnection(session.address, session.encKey);
+      await disableIntegration(db, integrationId);
+
+      // Remove credentials from session
+      if (session.integrationCredentials) {
+        delete session.integrationCredentials[integrationId];
+        await session.save();
+      }
+
+      return { ok: true, integrationId };
+    }
+  );
+
+  /** Remove an integration entirely (DB row + session credentials) */
+  app.post<{ Body: { integrationId: string } }>(
+    "/api/integrations/remove",
+    async (req, reply) => {
+      const session = await getIronSession<SessionData>(
+        req.raw,
+        reply.raw,
+        SESSION_OPTIONS
+      );
+      if (!session.address || !session.encKey) {
+        return reply.code(401).send({ error: "Unauthorized" });
+      }
+
+      const { integrationId } = req.body;
+      const db = await dbRouter.getConnection(session.address, session.encKey);
+      await removeIntegration(db, integrationId);
+
+      if (session.integrationCredentials) {
+        delete session.integrationCredentials[integrationId];
+        await session.save();
+      }
+
+      return { ok: true, integrationId };
+    }
+  );
 
   // Data deletion endpoint
   app.delete("/api/data", async (req, reply) => {

@@ -10,6 +10,10 @@ import { loadConfig } from "../config/index.js";
 import { DBRouter } from "../db/router.js";
 import { vectorSearch, embedAndStore } from "../db/vector.js";
 import { makeUserTools } from "./tools.js";
+import {
+  assembleIntegrationTools,
+  type SessionCredentials,
+} from "../integrations/index.js";
 
 const config = loadConfig();
 const anthropic = createAnthropic();
@@ -36,7 +40,8 @@ export class PersonalAssistant {
   async handleMessage(
     address: string,
     encKey: string,
-    message: string
+    message: string,
+    integrationCredentials: SessionCredentials = {}
   ): Promise<string> {
     const db = await this.dbRouter.getConnection(address, encKey);
 
@@ -83,8 +88,13 @@ export class PersonalAssistant {
       }));
     messages.push({ role: "user", content: message });
 
-    // 4. Vercel AI SDK agentic loop
+    // 4. Assemble tools: base user tools + enabled integration tools
     const userTools = makeUserTools(db);
+    const integrationTools = await assembleIntegrationTools(
+      db,
+      integrationCredentials
+    );
+    const allTools = { ...userTools, ...integrationTools };
 
     const systemPrompt = [
       soul,
@@ -103,7 +113,7 @@ export class PersonalAssistant {
       model: anthropic(config.models.agent),
       system: systemPrompt,
       messages,
-      tools: userTools,
+      tools: allTools,
       maxSteps: 10,
     });
 

@@ -40,11 +40,14 @@ bun test                 # Run tests
 |------|-------------|
 | `src/main.ts` | Entry point — bootstraps Fastify server |
 | `src/server/auth.ts` | SIWE nonce/verify/unlock/logout + HKDF key derivation |
-| `src/server/index.ts` | Fastify routes: `/api/chat`, `/api/data`, `/api/health`, static SPA |
+| `src/server/index.ts` | Fastify routes: `/api/chat`, `/api/integrations/*`, `/api/data`, `/api/health`, static SPA |
 | `src/agent/assistant.ts` | Agentic loop: load memories → vector search → generateText → persist |
 | `src/agent/tools.ts` | `save_memory`, `recall_memories`, `search_history` (all scoped to user DB) |
 | `src/db/router.ts` | `DBRouter` — maps eth address + encKey → encrypted Turso connection |
-| `src/db/schema.ts` | SQL DDL for memories, conversations, embeddings tables |
+| `src/db/schema.ts` | SQL DDL for memories, conversations, embeddings, integrations tables |
+| `src/integrations/types.ts` | `IntegrationDefinition`, `IntegrationContext`, credential types |
+| `src/integrations/registry.ts` | Available integrations registry (google-calendar, gmail) |
+| `src/integrations/manager.ts` | Enable/disable/remove integrations, assemble tools from DB + session |
 | `src/db/vector.ts` | `vectorSearch()` (cosine distance), `embedAndStore()` |
 | `src/config/index.ts` | Loads `config.toml` (or `CONFIG_TOML_B64` env var), applies `DATA_DIR` override |
 | `config.toml` | Model IDs, server port, session TTL, encryption cipher, data directory |
@@ -59,8 +62,9 @@ Each user's encrypted `.db` file contains:
 - **`memories`** — key-value facts (UNIQUE on key, upserted via `save_memory` tool)
 - **`conversations`** — full message log (session_id = eth address)
 - **`embeddings`** — vector store (Voyage AI embeddings, cosine distance search)
+- **`integrations`** — enabled integrations + per-integration config (UNIQUE on integration_id)
 
-See [docs/personalization.md](docs/personalization.md) for how these are used.
+See [docs/personalization.md](docs/personalization.md) and [docs/integrations.md](docs/integrations.md) for details.
 
 ## Auth Flow
 
@@ -71,22 +75,23 @@ Two wallet signatures on login:
 
 See [docs/authentication.md](docs/authentication.md) for the full flow.
 
+## Integrations
+
+Users progressively enable integrations (Google Calendar, Gmail, etc.) that give the agent new tools. See [docs/integrations.md](docs/integrations.md).
+
+- **Integration config** → stored in user's encrypted DB (`integrations` table)
+- **Credentials (OAuth tokens)** → stored in session cookie (never on disk)
+- **Tool assembly** → dynamic per-request: base tools + enabled integration tools
+
+To add a new integration: create a file in `src/integrations/`, implement `IntegrationDefinition`, register in `registry.ts`.
+
 ## Adding Tools
 
-Define new tools in `src/agent/tools.ts` using Vercel AI SDK's `tool()` + Zod:
+**Base tools** (always available): Define in `src/agent/tools.ts` using Vercel AI SDK's `tool()` + Zod.
 
-```typescript
-new_tool: tool({
-  description: "What this tool does",
-  parameters: z.object({ param: z.string() }),
-  execute: async ({ param }) => {
-    // db is available in closure — scoped to current user
-    return "result";
-  },
-}),
-```
+**Integration tools** (per-user, per-integration): Implement `createTools()` in an `IntegrationDefinition`. Tools are assembled dynamically based on what the user has enabled.
 
-Tools are passed to `generateText()` in `assistant.ts`. The agent can use up to 10 tool steps per request (`maxSteps: 10`).
+All tools are passed to `generateText()` in `assistant.ts`. The agent can use up to 10 tool steps per request (`maxSteps: 10`).
 
 ## Environment Variables
 

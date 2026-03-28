@@ -6,6 +6,7 @@ import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex } from "@noble/hashes/utils";
 import { verifyMessage } from "viem";
 import { loadConfig } from "../config/index.js";
+import type { SessionCredentials } from "../integrations/index.js";
 
 const config = loadConfig();
 
@@ -13,6 +14,8 @@ export interface SessionData {
   nonce?: string;
   address?: string;
   encKey?: string;
+  /** Per-integration credentials: { integrationId: { key: value } } */
+  integrationCredentials?: SessionCredentials;
 }
 
 export const SESSION_OPTIONS = {

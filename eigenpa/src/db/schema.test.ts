@@ -4,11 +4,11 @@ import { SCHEMA } from "./schema.js";
 describe("schema", () => {
   it("exports an array of SQL statements", () => {
     expect(Array.isArray(SCHEMA)).toBe(true);
-    expect(SCHEMA.length).toBe(3);
+    expect(SCHEMA.length).toBe(4);
   });
 
   it("contains CREATE TABLE IF NOT EXISTS for all required tables", () => {
-    const tables = ["memories", "conversations", "embeddings"];
+    const tables = ["memories", "conversations", "embeddings", "integrations"];
     for (const table of tables) {
       const found = SCHEMA.some(
         (stmt) =>

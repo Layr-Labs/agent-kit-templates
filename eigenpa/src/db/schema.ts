@@ -20,4 +20,12 @@ export const SCHEMA = [
     metadata   TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS integrations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    integration_id TEXT NOT NULL UNIQUE,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    config         TEXT DEFAULT '{}',
+    created_at     TEXT DEFAULT (datetime('now')),
+    updated_at     TEXT DEFAULT (datetime('now'))
+  )`,
 ];

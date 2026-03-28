@@ -113,7 +113,7 @@ describe("agent tools", () => {
       const tools = makeUserTools(db);
 
       const result = await tools.search_history.execute(
-        { query: "nonexistent" },
+        { query: "nonexistent", limit: 10 },
         toolCtx
       );
       expect(result).toBe("No matching conversations found.");
@@ -135,7 +135,7 @@ describe("agent tools", () => {
         .run("s1", "assistant", "TypeScript is a typed superset of JavaScript");
 
       const result = await tools.search_history.execute(
-        { query: "TypeScript" },
+        { query: "TypeScript", limit: 10 },
         toolCtx
       );
 
