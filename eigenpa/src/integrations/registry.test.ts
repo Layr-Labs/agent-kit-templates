@@ -4,11 +4,12 @@ import { listIntegrations, getIntegration } from "./registry.js";
 describe("integration registry", () => {
   it("lists all available integrations", () => {
     const all = listIntegrations();
-    expect(all.length).toBeGreaterThanOrEqual(2);
+    expect(all.length).toBeGreaterThanOrEqual(3);
 
     const ids = all.map((i) => i.id);
     expect(ids).toContain("google-calendar");
     expect(ids).toContain("gmail");
+    expect(ids).toContain("github");
   });
 
   it("each integration has required fields", () => {
@@ -65,5 +66,24 @@ describe("integration registry", () => {
 
     expect(tools).toHaveProperty("gmail_list_messages");
     expect(tools).toHaveProperty("gmail_send_message");
+  });
+
+  it("github createTools returns repo and code tools", () => {
+    const gh = getIntegration("github")!;
+    expect(gh.name).toBe("GitHub");
+
+    const tools = gh.createTools({
+      credentials: { access_token: "ghp_fake" },
+      config: {},
+    });
+
+    expect(tools).toHaveProperty("github_list_repos");
+    expect(tools).toHaveProperty("github_list_issues");
+    expect(tools).toHaveProperty("github_get_issue");
+    expect(tools).toHaveProperty("github_list_prs");
+    expect(tools).toHaveProperty("github_get_pr");
+    expect(tools).toHaveProperty("github_get_file");
+    expect(tools).toHaveProperty("github_list_directory");
+    expect(tools).toHaveProperty("github_search_code");
   });
 });
