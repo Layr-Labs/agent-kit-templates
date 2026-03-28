@@ -194,6 +194,7 @@ const components: Components = {
 };
 
 export function Markdown({ content }: { content: string }) {
+  if (!content) return null;
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
       {content}

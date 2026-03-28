@@ -74,9 +74,9 @@ export async function createServer() {
           session.integrationCredentials ?? {}
         );
 
-        // Hand off to raw response for SSE streaming
+        // Hand off to raw response for SSE streaming (UI message format for useChat)
         reply.hijack();
-        result.pipeTextStreamToResponse(reply.raw);
+        result.pipeUIMessageStreamToResponse(reply.raw);
       } catch (err) {
         req.log.error(err);
         return reply.code(500).send({ error: "Failed to process message" });

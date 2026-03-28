@@ -7,11 +7,12 @@ import { Markdown } from "./Markdown";
 import { LocationButton } from "./LocationButton";
 
 export function Chat({ address }: { address: string }) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, append } =
+  const { messages, input: rawInput, handleInputChange, handleSubmit, isLoading, append } =
     useChat({
       api: "/api/chat",
       maxSteps: 10,
     });
+  const input = rawInput ?? "";
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -126,6 +127,15 @@ export function Chat({ address }: { address: string }) {
 
         {messages.map((msg) => {
           if (msg.role === "user") {
+            // In ai@6, content may be in parts instead of .content
+            const text =
+              msg.content ||
+              (msg as any).parts
+                ?.filter((p: any) => p.type === "text")
+                .map((p: any) => p.text)
+                .join("") ||
+              "";
+            if (!text) return null;
             return (
               <div
                 key={msg.id}
@@ -146,7 +156,7 @@ export function Chat({ address }: { address: string }) {
                     whiteSpace: "pre-wrap",
                   }}
                 >
-                  {msg.content}
+                  {text}
                 </div>
               </div>
             );
@@ -277,7 +287,7 @@ export function Chat({ address }: { address: string }) {
         }}
       >
         <input
-          value={input}
+          value={input ?? ""}
           onChange={handleInputChange}
           placeholder="Send a message..."
           disabled={isLoading}
@@ -294,7 +304,7 @@ export function Chat({ address }: { address: string }) {
         />
         <button
           type="submit"
-          disabled={isLoading || !input.trim()}
+          disabled={isLoading || !(input ?? "").trim()}
           style={{
             padding: "0.75rem 1.5rem",
             fontSize: "0.95rem",
@@ -302,8 +312,8 @@ export function Chat({ address }: { address: string }) {
             color: "#fff",
             border: "none",
             borderRadius: "12px",
-            cursor: isLoading || !input.trim() ? "not-allowed" : "pointer",
-            opacity: isLoading || !input.trim() ? 0.4 : 1,
+            cursor: isLoading || !(input ?? "").trim() ? "not-allowed" : "pointer",
+            opacity: isLoading || !(input ?? "").trim() ? 0.4 : 1,
             fontWeight: 500,
             transition: "opacity 0.15s",
           }}
