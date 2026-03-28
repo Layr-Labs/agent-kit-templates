@@ -1,5 +1,5 @@
 import { useChat } from "@ai-sdk/react";
-import { useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { OAuthButton } from "./OAuthButton";
 import { EventList } from "./EventList";
 import { EmailPreview } from "./EmailPreview";
@@ -7,12 +7,13 @@ import { Markdown } from "./Markdown";
 import { LocationButton } from "./LocationButton";
 
 export function Chat({ address }: { address: string }) {
-  const { messages, input: rawInput, handleInputChange, handleSubmit, isLoading, append } =
-    useChat({
-      api: "/api/chat",
-      maxSteps: 10,
-    });
-  const input = rawInput ?? "";
+  const { messages, sendMessage, status } = useChat({
+    api: "/api/chat",
+    maxSteps: 10,
+  });
+
+  const [input, setInput] = useState("");
+  const isLoading = status === "streaming" || status === "submitted";
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -23,28 +24,50 @@ export function Chat({ address }: { address: string }) {
     }, 50);
   }, [messages]);
 
+  const handleSubmit = useCallback(
+    (e?: React.FormEvent) => {
+      e?.preventDefault();
+      const text = input.trim();
+      if (!text || isLoading) return;
+      sendMessage({ role: "user", content: text });
+      setInput("");
+    },
+    [input, isLoading, sendMessage]
+  );
+
+  const appendMessage = useCallback(
+    (content: string) => {
+      sendMessage({ role: "user", content });
+    },
+    [sendMessage]
+  );
+
   const handleOAuthConnected = useCallback(
     (integrationId: string) => {
       const lastUserMsg = [...messages]
         .reverse()
         .find((m) => m.role === "user");
-      const context = lastUserMsg?.content ?? "the task I asked about";
-      append({
-        role: "user",
-        content: `I just connected ${integrationId}. Please continue with ${context}`,
-      });
+      const userText =
+        lastUserMsg?.content ||
+        (lastUserMsg as any)?.parts
+          ?.filter((p: any) => p.type === "text")
+          .map((p: any) => p.text)
+          .join("") ||
+        "the task I asked about";
+      appendMessage(
+        `I just connected ${integrationId}. Please continue with ${userText}`
+      );
     },
-    [messages, append]
+    [messages, appendMessage]
   );
 
   const handleLocationShared = useCallback(
     (lat: number, lng: number) => {
-      append({
-        role: "user",
-        content: `My location is: latitude ${lat}, longitude ${lng}. Please continue with what you were doing.`,
-      });
+      appendMessage(
+        `My location is: latitude ${lat}, longitude ${lng}. Please continue with what you were doing.`
+      );
     },
-    [append]
+    [appendMessage]
   );
 
   function renderToolResult(toolName: string, result: any) {
@@ -68,8 +91,10 @@ export function Chat({ address }: { address: string }) {
         />
       );
     }
-    if (toolName === "show_event_list") return <EventList events={result.events} />;
-    if (toolName === "show_email_preview") return <EmailPreview emails={result.emails} />;
+    if (toolName === "show_event_list")
+      return <EventList events={result.events} />;
+    if (toolName === "show_email_preview")
+      return <EmailPreview emails={result.emails} />;
     return null;
   }
 
@@ -127,7 +152,6 @@ export function Chat({ address }: { address: string }) {
 
         {messages.map((msg) => {
           if (msg.role === "user") {
-            // In ai@6, content may be in parts instead of .content
             const text =
               msg.content ||
               (msg as any).parts
@@ -190,7 +214,10 @@ export function Chat({ address }: { address: string }) {
                       </div>
                     );
                   }
-                  if (part.type === "tool-invocation" && part.state === "result") {
+                  if (
+                    part.type === "tool-invocation" &&
+                    part.state === "result"
+                  ) {
                     const rendered = renderToolResult(
                       part.toolName,
                       part.result
@@ -202,7 +229,10 @@ export function Chat({ address }: { address: string }) {
                       </div>
                     );
                   }
-                  if (part.type === "tool-invocation" && part.state === "call") {
+                  if (
+                    part.type === "tool-invocation" &&
+                    part.state === "call"
+                  ) {
                     return (
                       <div
                         key={i}
@@ -220,7 +250,6 @@ export function Chat({ address }: { address: string }) {
                   return null;
                 })
               ) : msg.content ? (
-                // Fallback if parts not available
                 <div
                   style={{
                     maxWidth: "90%",
@@ -251,7 +280,9 @@ export function Chat({ address }: { address: string }) {
                 border: "1px solid #1c1c30",
               }}
             >
-              <span style={{ animation: "pulse 1.4s infinite", opacity: 0.4 }}>
+              <span
+                style={{ animation: "pulse 1.4s infinite", opacity: 0.4 }}
+              >
                 ●
               </span>
               <span
@@ -287,8 +318,8 @@ export function Chat({ address }: { address: string }) {
         }}
       >
         <input
-          value={input ?? ""}
-          onChange={handleInputChange}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Send a message..."
           disabled={isLoading}
           style={{
@@ -304,7 +335,7 @@ export function Chat({ address }: { address: string }) {
         />
         <button
           type="submit"
-          disabled={isLoading || !(input ?? "").trim()}
+          disabled={isLoading || !input.trim()}
           style={{
             padding: "0.75rem 1.5rem",
             fontSize: "0.95rem",
@@ -312,8 +343,8 @@ export function Chat({ address }: { address: string }) {
             color: "#fff",
             border: "none",
             borderRadius: "12px",
-            cursor: isLoading || !(input ?? "").trim() ? "not-allowed" : "pointer",
-            opacity: isLoading || !(input ?? "").trim() ? 0.4 : 1,
+            cursor: isLoading || !input.trim() ? "not-allowed" : "pointer",
+            opacity: isLoading || !input.trim() ? 0.4 : 1,
             fontWeight: 500,
             transition: "opacity 0.15s",
           }}

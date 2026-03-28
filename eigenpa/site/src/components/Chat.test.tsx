@@ -36,7 +36,7 @@ describe("Chat", () => {
     expect(button).toBeDisabled();
   });
 
-  it("accepts typed input", async () => {
+  it("accepts typed input without errors", async () => {
     const user = userEvent.setup();
     render(<Chat address={TEST_ADDRESS} />);
     const input = screen.getByPlaceholderText("Send a message...");
@@ -64,9 +64,7 @@ describe("Chat", () => {
     await user.type(input, "hello agent");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    // Input should be cleared
     expect(input).toHaveValue("");
-    // User message should appear
     expect(screen.getByText("hello agent")).toBeInTheDocument();
   });
 
@@ -83,9 +81,7 @@ describe("Chat", () => {
     });
   });
 
-  it("does not crash when message content is undefined", () => {
-    // This is the regression test — ai@6 can return messages
-    // where content is undefined and text lives in parts only
+  it("does not crash when rendering empty message list", () => {
     expect(() => {
       render(<Chat address={TEST_ADDRESS} />);
     }).not.toThrow();

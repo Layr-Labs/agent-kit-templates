@@ -23,9 +23,13 @@ jobs:
         working-directory: eigenpa
         run: bun run typecheck
 
-      - name: Run tests with coverage
+      - name: Run server tests with coverage
         working-directory: eigenpa
         run: bunx vitest run --coverage
+
+      - name: Run UI tests
+        working-directory: eigenpa
+        run: bun run test:ui
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

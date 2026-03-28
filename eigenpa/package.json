@@ -7,10 +7,11 @@
     "start": "bun run site:build && bun src/main.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config site/vitest.config.ts",
+    "test:server": "vitest run",
+    "test:ui": "vitest run --config site/vitest.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest run --config site/vitest.config.ts",
     "site:dev": "vite dev --config site/vite.config.ts",
     "site:build": "vite build --config site/vite.config.ts"
   },

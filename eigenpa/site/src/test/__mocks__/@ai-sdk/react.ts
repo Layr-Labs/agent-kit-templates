@@ -1,36 +1,24 @@
 import { useState, useCallback } from "react";
 
 /**
- * Minimal mock of @ai-sdk/react's useChat hook.
- * Returns the same shape as the real hook so components can be tested
- * without a running server or real AI SDK dependency.
+ * Mock of @ai-sdk/react@3's useChat hook.
+ * Matches the real API: returns sendMessage + status (not input/handleInputChange).
+ * Input management is the consumer's responsibility.
  */
 export function useChat(_opts?: any) {
-  const [input, setInput] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<string>("ready");
 
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setInput(e.target.value);
-    },
-    []
-  );
-
-  const handleSubmit = useCallback(
-    (e?: React.FormEvent) => {
-      e?.preventDefault();
-      if (!input.trim()) return;
+  const sendMessage = useCallback(
+    (msg: { role: string; content: string }) => {
       const userMsg = {
         id: `msg-${Date.now()}`,
-        role: "user" as const,
-        content: input,
-        parts: [{ type: "text" as const, text: input }],
+        role: msg.role,
+        content: msg.content,
+        parts: [{ type: "text" as const, text: msg.content }],
       };
       setMessages((prev) => [...prev, userMsg]);
-      setInput("");
-      // Simulate assistant response
-      setIsLoading(true);
+      setStatus("streaming");
       setTimeout(() => {
         setMessages((prev) => [
           ...prev,
@@ -41,34 +29,18 @@ export function useChat(_opts?: any) {
             parts: [{ type: "text" as const, text: "Mock response" }],
           },
         ]);
-        setIsLoading(false);
+        setStatus("ready");
       }, 10);
-    },
-    [input]
-  );
-
-  const append = useCallback(
-    (msg: { role: string; content: string }) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          role: msg.role,
-          content: msg.content,
-          parts: [{ type: "text" as const, text: msg.content }],
-        },
-      ]);
     },
     []
   );
 
   return {
     messages,
-    input,
-    setInput,
-    handleInputChange,
-    handleSubmit,
-    isLoading,
-    append,
+    setMessages,
+    sendMessage,
+    status,
+    stop: () => {},
+    error: undefined,
   };
 }
