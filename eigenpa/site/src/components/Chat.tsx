@@ -186,84 +186,89 @@ export function Chat({ address }: { address: string }) {
             );
           }
 
-          // Assistant message — render each part separately
+          // Assistant message — group consecutive text parts into single bubbles,
+          // only break on tool invocations
           const parts = (msg as any).parts ?? [];
-          const hasParts = parts.length > 0;
+          const groups: Array<
+            | { type: "text"; text: string }
+            | { type: "tool"; toolName: string; state: string; result?: any }
+          > = [];
+
+          for (const part of parts) {
+            if (part.type === "text" && part.text) {
+              const last = groups[groups.length - 1];
+              if (last?.type === "text") {
+                last.text += part.text;
+              } else {
+                groups.push({ type: "text", text: part.text });
+              }
+            } else if (part.type === "tool-invocation") {
+              groups.push({
+                type: "tool",
+                toolName: part.toolName,
+                state: part.state,
+                result: part.result,
+              });
+            }
+          }
+
+          // Fallback if no parts
+          if (!groups.length && msg.content) {
+            groups.push({ type: "text", text: msg.content });
+          }
 
           return (
             <div key={msg.id} style={{ marginBottom: "1.25rem" }}>
-              {hasParts ? (
-                parts.map((part: any, i: number) => {
-                  if (part.type === "text" && part.text?.trim()) {
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          maxWidth: "90%",
-                          padding: "0.75rem 1.25rem",
-                          borderRadius: "18px 18px 18px 4px",
-                          background: "#111119",
-                          border: "1px solid #1c1c30",
-                          marginBottom:
-                            i < parts.length - 1 ? "0.5rem" : 0,
-                          fontSize: "0.95rem",
-                          color: "#d0d0e0",
-                        }}
-                      >
-                        <Markdown content={part.text} />
-                      </div>
-                    );
-                  }
-                  if (
-                    part.type === "tool-invocation" &&
-                    part.state === "result"
-                  ) {
-                    const rendered = renderToolResult(
-                      part.toolName,
-                      part.result
-                    );
-                    if (!rendered) return null;
-                    return (
-                      <div key={i} style={{ marginBottom: "0.5rem" }}>
-                        {rendered}
-                      </div>
-                    );
-                  }
-                  if (
-                    part.type === "tool-invocation" &&
-                    part.state === "call"
-                  ) {
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          fontSize: "0.8rem",
-                          opacity: 0.4,
-                          padding: "0.25rem 0",
-                          fontFamily: "monospace",
-                        }}
-                      >
-                        Using {part.toolName}...
-                      </div>
-                    );
-                  }
-                  return null;
-                })
-              ) : msg.content ? (
-                <div
-                  style={{
-                    maxWidth: "90%",
-                    padding: "0.75rem 1.25rem",
-                    borderRadius: "18px 18px 18px 4px",
-                    background: "#111119",
-                    border: "1px solid #1c1c30",
-                    fontSize: "0.95rem",
-                    color: "#d0d0e0",
-                  }}
-                >
-                  <Markdown content={msg.content} />
-                </div>
-              ) : null}
+              {groups.map((group, i) => {
+                if (group.type === "text" && group.text.trim()) {
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        maxWidth: "90%",
+                        padding: "0.75rem 1.25rem",
+                        borderRadius: "18px 18px 18px 4px",
+                        background: "#111119",
+                        border: "1px solid #1c1c30",
+                        marginBottom:
+                          i < groups.length - 1 ? "0.5rem" : 0,
+                        fontSize: "0.95rem",
+                        color: "#d0d0e0",
+                      }}
+                    >
+                      <Markdown content={group.text} />
+                    </div>
+                  );
+                }
+                if (group.type === "tool" && group.state === "result") {
+                  const rendered = renderToolResult(
+                    group.toolName,
+                    group.result
+                  );
+                  if (!rendered) return null;
+                  return (
+                    <div key={i} style={{ marginBottom: "0.5rem" }}>
+                      {rendered}
+                    </div>
+                  );
+                }
+                if (group.type === "tool" && group.state === "call") {
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        fontSize: "0.8rem",
+                        opacity: 0.4,
+                        padding: "0.25rem 0",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      Using {group.toolName}...
+                    </div>
+                  );
+                }
+                return null;
+              })}
             </div>
           );
         })}
