@@ -9,6 +9,7 @@ import { EmailDetail } from "./EmailDetail";
 import { GitHubRepoCard } from "./GitHubRepoCard";
 import { GitHubIssueList } from "./GitHubIssueList";
 import { ScheduledTaskList } from "./ScheduledTaskList";
+import { SettingsPanel } from "./SettingsPanel";
 
 export function Chat({ address }: { address: string }) {
   const { messages, sendMessage, status } = useChat({
@@ -17,6 +18,7 @@ export function Chat({ address }: { address: string }) {
   });
 
   const [input, setInput] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const isLoading = status === "streaming" || status === "submitted";
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -149,16 +151,34 @@ export function Chat({ address }: { address: string }) {
         }}
       >
         <span style={{ fontWeight: 700, fontSize: "1.1rem" }}>EigenPA</span>
-        <span
-          style={{
-            fontFamily: "monospace",
-            opacity: 0.4,
-            fontSize: "0.8rem",
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#888",
+              fontSize: "1.1rem",
+              cursor: "pointer",
+              padding: "0.2rem",
+            }}
+            title="Settings"
+          >
+            ⚙
+          </button>
+          <span
+            style={{
+              fontFamily: "monospace",
+              opacity: 0.4,
+              fontSize: "0.8rem",
           }}
         >
           {address.slice(0, 6)}...{address.slice(-4)}
         </span>
+        </div>
       </div>
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "1rem" }}>
