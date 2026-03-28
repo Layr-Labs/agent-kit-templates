@@ -19,6 +19,7 @@ import {
   getEnabledIntegrations,
 } from "../integrations/index.js";
 import { oauthRoutes } from "./oauth.js";
+import { keyVault } from "../vault/keyvault.js";
 
 const config = loadConfig();
 
@@ -192,6 +193,61 @@ export async function createServer() {
       return { ok: true, integrationId };
     }
   );
+
+  // ── Background task delegation ──
+
+  /** Opt into background tasks — stores keys in TEE-resident vault */
+  app.post("/api/delegate", async (req, reply) => {
+    const session = await getIronSession<SessionData>(
+      req.raw,
+      reply.raw,
+      SESSION_OPTIONS
+    );
+    if (!session.address || !session.encKey) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    keyVault.store(session.address, {
+      encKey: session.encKey,
+      integrationCredentials: session.integrationCredentials ?? {},
+      delegatedAt: Date.now(),
+    });
+
+    return { ok: true, delegated: true };
+  });
+
+  /** Revoke background task delegation — removes keys from vault */
+  app.post("/api/delegate/revoke", async (req, reply) => {
+    const session = await getIronSession<SessionData>(
+      req.raw,
+      reply.raw,
+      SESSION_OPTIONS
+    );
+    if (!session.address || !session.encKey) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    keyVault.delete(session.address);
+    return { ok: true, delegated: false };
+  });
+
+  /** Check delegation status */
+  app.get("/api/delegate/status", async (req, reply) => {
+    const session = await getIronSession<SessionData>(
+      req.raw,
+      reply.raw,
+      SESSION_OPTIONS
+    );
+    if (!session.address || !session.encKey) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const entry = keyVault.get(session.address);
+    return {
+      delegated: !!entry,
+      delegatedAt: entry?.delegatedAt ?? null,
+    };
+  });
 
   // Data deletion endpoint
   app.delete("/api/data", async (req, reply) => {

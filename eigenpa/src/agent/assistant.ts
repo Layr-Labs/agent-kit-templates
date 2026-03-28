@@ -11,6 +11,7 @@ import { DBRouter } from "../db/router.js";
 import { vectorSearch, embedAndStore } from "../db/vector.js";
 import { makeUserTools } from "./tools.js";
 import { makeUITools } from "./ui-tools.js";
+import { makeScheduleTools } from "./schedule-tools.js";
 import {
   assembleIntegrationTools,
   type SessionCredentials,
@@ -86,14 +87,15 @@ export class PersonalAssistant {
       }
     }
 
-    // 3. Assemble tools: base + UI + integrations
+    // 3. Assemble tools: base + UI + schedule + integrations
     const userTools = makeUserTools(db);
     const uiTools = makeUITools(db);
+    const scheduleTools = makeScheduleTools(db, address);
     const integrationTools = await assembleIntegrationTools(
       db,
       integrationCredentials
     );
-    const allTools = { ...userTools, ...uiTools, ...integrationTools };
+    const allTools = { ...userTools, ...uiTools, ...scheduleTools, ...integrationTools };
 
     // 4. Build system prompt
     const enabledIntegrationIds = Object.keys(integrationCredentials);

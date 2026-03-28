@@ -28,4 +28,15 @@ export const SCHEMA = [
     created_at     TEXT DEFAULT (datetime('now')),
     updated_at     TEXT DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL,
+    cron        TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    next_run_at TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+  )`,
 ];
