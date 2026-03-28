@@ -22,6 +22,7 @@ import {
   assembleIntegrationTools,
   type SessionCredentials,
 } from "../integrations/index.js";
+import { makeToolSearchTool } from "./tool-search.js";
 
 const config = loadConfig();
 const anthropic = createAnthropic();
@@ -120,8 +121,7 @@ export class PersonalAssistant {
     }
 
     // ── #3: Lazy tool registration ──
-    // Only register base tools + tools for integrations the user has enabled.
-    // Skip integration tools entirely if no credentials are in the session.
+    // Only assemble integration tools if the user has credentials.
     const userTools = makeUserTools(db);
     const uiTools = makeUITools(db, address);
     const scheduleTools = makeScheduleTools(db, address);
@@ -131,13 +131,34 @@ export class PersonalAssistant {
       ? await assembleIntegrationTools(db, integrationCredentials)
       : {};
 
-    const allTools = {
+    // ── #1: Custom tool search with deferred loading ──
+    // Core tools (always loaded): memory, UI, web search, tool search itself.
+    // Deferred tools (loaded on demand): schedule tools, integration tools.
+    // Claude uses search_tools to discover deferred tools, which return
+    // tool_reference blocks that the API expands into full definitions.
+    const coreTools: Record<string, any> = {
       ...userTools,
       ...uiTools,
-      ...scheduleTools,
-      ...integrationTools,
       web_search: anthropic.tools.webSearch_20250305(),
     };
+
+    const deferredTools: Record<string, any> = {
+      ...scheduleTools,
+      ...integrationTools,
+    };
+
+    // Mark deferred tools with providerOptions
+    for (const t of Object.values(deferredTools)) {
+      if (!t.providerOptions) t.providerOptions = {};
+      t.providerOptions.anthropic = { deferLoading: true };
+    }
+
+    // Add the search tool (only if there are tools to search)
+    if (Object.keys(deferredTools).length > 0) {
+      coreTools.search_tools = makeToolSearchTool(deferredTools);
+    }
+
+    const allTools = { ...coreTools, ...deferredTools };
 
     // ── #4: Trim system prompt — only include non-empty sections ──
     const integrationToolNames = Object.keys(integrationTools);
