@@ -136,9 +136,6 @@ export class PersonalAssistant {
       ...uiTools,
       ...scheduleTools,
       ...integrationTools,
-      // #1: Anthropic tool search — Claude searches this index instead of
-      // receiving all 30+ tool schemas. Massively reduces prompt tokens.
-      tool_search: anthropic.tools.toolSearchBm25_20251119(),
       web_search: anthropic.tools.webSearch_20250305(),
     };
 
