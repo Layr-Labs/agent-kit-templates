@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { streamText, type StreamTextResult, type Message } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { VoyageAIClient } from "voyageai";
 import { readFileSync } from "node:fs";
@@ -10,6 +10,7 @@ import { loadConfig } from "../config/index.js";
 import { DBRouter } from "../db/router.js";
 import { vectorSearch, embedAndStore } from "../db/vector.js";
 import { makeUserTools } from "./tools.js";
+import { makeUITools } from "./ui-tools.js";
 import {
   assembleIntegrationTools,
   type SessionCredentials,
@@ -37,12 +38,16 @@ const constitution = loadConstitution();
 export class PersonalAssistant {
   constructor(private dbRouter: DBRouter) {}
 
-  async handleMessage(
+  /**
+   * Stream a response to the user. Returns a StreamTextResult that can be
+   * piped to an HTTP response via `result.pipeDataStreamToResponse(res)`.
+   */
+  async streamMessage(
     address: string,
     encKey: string,
-    message: string,
+    messages: Message[],
     integrationCredentials: SessionCredentials = {}
-  ): Promise<string> {
+  ): Promise<StreamTextResult<any, any>> {
     const db = await this.dbRouter.getConnection(address, encKey);
 
     // 1. Load structured memories
@@ -54,47 +59,47 @@ export class PersonalAssistant {
 
     // 2. Semantic retrieval via Voyage embeddings
     let semanticText = "None.";
-    try {
-      const queryEmbedding = await voyage.embed({
-        input: [message],
-        model: config.models.embed,
-      });
-      const docs = await vectorSearch(
-        db,
-        queryEmbedding.data![0].embedding!,
-        5
-      );
-      if (docs.length) {
-        semanticText = docs.map((d) => `- ${d.content}`).join("\n");
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((m) => m.role === "user");
+    const queryText =
+      typeof lastUserMessage?.content === "string"
+        ? lastUserMessage.content
+        : "";
+
+    if (queryText) {
+      try {
+        const queryEmbedding = await voyage.embed({
+          input: [queryText],
+          model: config.models.embed,
+        });
+        const docs = await vectorSearch(
+          db,
+          queryEmbedding.data![0].embedding!,
+          5
+        );
+        if (docs.length) {
+          semanticText = docs.map((d) => `- ${d.content}`).join("\n");
+        }
+      } catch {
+        // Empty embeddings table on first interaction
       }
-    } catch {
-      // Empty embeddings table on first interaction
     }
 
-    // 3. Load conversation history
-    const historyRows = (await db
-      .prepare(
-        `SELECT role, content FROM conversations
-         WHERE session_id = ?
-         ORDER BY id DESC LIMIT 20`
-      )
-      .all(address)) as Array<{ role: string; content: string }>;
-    historyRows.reverse();
-
-    const messages: Array<{ role: "user" | "assistant"; content: string }> =
-      historyRows.map((row) => ({
-        role: row.role as "user" | "assistant",
-        content: row.content,
-      }));
-    messages.push({ role: "user", content: message });
-
-    // 4. Assemble tools: base user tools + enabled integration tools
+    // 3. Assemble tools: base + UI + integrations
     const userTools = makeUserTools(db);
+    const uiTools = makeUITools(db);
     const integrationTools = await assembleIntegrationTools(
       db,
       integrationCredentials
     );
-    const allTools = { ...userTools, ...integrationTools };
+    const allTools = { ...userTools, ...uiTools, ...integrationTools };
+
+    // 4. Build system prompt
+    const enabledIntegrationIds = Object.keys(integrationCredentials);
+    const integrationStatus = enabledIntegrationIds.length
+      ? `Enabled: ${enabledIntegrationIds.join(", ")}`
+      : "None connected yet.";
 
     const systemPrompt = [
       soul,
@@ -107,39 +112,46 @@ export class PersonalAssistant {
       "",
       "## Relevant past context",
       semanticText,
+      "",
+      "## Connected integrations",
+      integrationStatus,
     ].join("\n");
 
-    const { text } = await generateText({
+    // 5. Stream response
+    const result = streamText({
       model: anthropic(config.models.agent),
       system: systemPrompt,
       messages,
       tools: allTools,
       maxSteps: 10,
+      onFinish: async ({ text }) => {
+        // Persist conversation after stream completes
+        if (queryText && text) {
+          const insertConv = db.prepare(
+            "INSERT INTO conversations (session_id, role, content) VALUES (?, ?, ?)"
+          );
+          await insertConv.run(address, "user", queryText);
+          await insertConv.run(address, "assistant", text);
+
+          // Embed for future retrieval
+          try {
+            const embedding = await voyage.embed({
+              input: [`User: ${queryText}\nAssistant: ${text}`],
+              model: config.models.embed,
+            });
+            await embedAndStore(
+              db,
+              `User: ${queryText}\nAssistant: ${text}`,
+              embedding.data![0].embedding!,
+              { type: "conversation" }
+            );
+          } catch {
+            // Non-critical
+          }
+        }
+      },
     });
 
-    // 5. Persist conversation turns
-    const insertConv = db.prepare(
-      "INSERT INTO conversations (session_id, role, content) VALUES (?, ?, ?)"
-    );
-    insertConv.run(address, "user", message);
-    insertConv.run(address, "assistant", text);
-
-    // 6. Embed exchange for future semantic retrieval
-    try {
-      const embedding = await voyage.embed({
-        input: [`User: ${message}\nAssistant: ${text}`],
-        model: config.models.embed,
-      });
-      embedAndStore(
-        db,
-        `User: ${message}\nAssistant: ${text}`,
-        embedding.data![0].embedding!,
-        { type: "conversation" }
-      );
-    } catch {
-      // Non-critical — don't fail the response
-    }
-
-    return text;
+    return result;
   }
 }

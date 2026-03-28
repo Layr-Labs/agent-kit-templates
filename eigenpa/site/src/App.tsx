@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAccount } from "wagmi";
 import { WalletGate } from "./components/WalletGate";
-import { ChatInput } from "./components/ChatInput";
+import { Chat } from "./components/Chat";
 
 export function App() {
   const { address, isConnected } = useAccount();
@@ -11,5 +11,5 @@ export function App() {
     return <WalletGate onUnlocked={() => setUnlocked(true)} />;
   }
 
-  return <ChatInput address={address} />;
+  return <Chat address={address} />;
 }
