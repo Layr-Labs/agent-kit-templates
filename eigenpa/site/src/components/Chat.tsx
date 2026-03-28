@@ -249,11 +249,21 @@ export function Chat({ address }: { address: string }) {
                 groups.push({ type: "text", text: part.text });
               }
             } else if (part.type === "tool-invocation") {
+              // ai@4 format
               groups.push({
                 type: "tool",
                 toolName: part.toolName,
                 state: part.state,
                 result: part.result,
+              });
+            } else if (part.type?.startsWith("tool-") && part.type !== "tool") {
+              // useChat@3 format: type is "tool-{toolName}"
+              const toolName = part.type.slice(5); // strip "tool-" prefix
+              groups.push({
+                type: "tool",
+                toolName,
+                state: part.state === "output-available" ? "result" : part.state,
+                result: part.output ?? part.result,
               });
             }
           }
