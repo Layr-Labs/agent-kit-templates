@@ -28,7 +28,7 @@ export const gmail: IntegrationDefinition = {
       gmail_list_messages: tool({
         description:
           "List recent emails from the user's Gmail inbox",
-        parameters: z.object({
+        inputSchema: z.object({
           query: z
             .string()
             .optional()
@@ -79,7 +79,7 @@ export const gmail: IntegrationDefinition = {
 
       gmail_send_message: tool({
         description: "Send an email from the user's Gmail account",
-        parameters: z.object({
+        inputSchema: z.object({
           to: z.string().describe("Recipient email address"),
           subject: z.string().describe("Email subject"),
           body: z.string().describe("Email body (plain text)"),

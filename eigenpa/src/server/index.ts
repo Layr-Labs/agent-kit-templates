@@ -76,7 +76,7 @@ export async function createServer() {
 
         // Hand off to raw response for SSE streaming
         reply.hijack();
-        result.pipeDataStreamToResponse(reply.raw);
+        result.pipeTextStreamToResponse(reply.raw);
       } catch (err) {
         req.log.error(err);
         return reply.code(500).send({ error: "Failed to process message" });

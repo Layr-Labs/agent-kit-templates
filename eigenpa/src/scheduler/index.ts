@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { keyVault } from "../vault/keyvault.js";
 import { DBRouter } from "../db/router.js";
@@ -152,7 +152,7 @@ async function executeTask(
       },
     ],
     tools: allTools,
-    maxSteps: 10,
+    stopWhen: stepCountIs(10),
   });
 
   // Log the result as a conversation

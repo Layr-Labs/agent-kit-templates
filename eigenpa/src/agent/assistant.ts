@@ -1,4 +1,4 @@
-import { streamText, type StreamTextResult, type Message } from "ai";
+import { streamText, stepCountIs, convertToModelMessages, type StreamTextResult, type UIMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { VoyageAIClient } from "voyageai";
 import { readFileSync } from "node:fs";
@@ -46,7 +46,7 @@ export class PersonalAssistant {
   async streamMessage(
     address: string,
     encKey: string,
-    messages: Message[],
+    messages: UIMessage[],
     integrationCredentials: SessionCredentials = {}
   ): Promise<StreamTextResult<any, any>> {
     const db = await this.dbRouter.getConnection(address, encKey);
@@ -63,10 +63,10 @@ export class PersonalAssistant {
     const lastUserMessage = [...messages]
       .reverse()
       .find((m) => m.role === "user");
-    const queryText =
-      typeof lastUserMessage?.content === "string"
-        ? lastUserMessage.content
-        : "";
+    const queryText = lastUserMessage?.parts
+      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join(" ") ?? "";
 
     if (queryText) {
       try {
@@ -95,7 +95,13 @@ export class PersonalAssistant {
       db,
       integrationCredentials
     );
-    const allTools = { ...userTools, ...uiTools, ...scheduleTools, ...integrationTools };
+    const allTools = {
+      ...userTools,
+      ...uiTools,
+      ...scheduleTools,
+      ...integrationTools,
+      web_search: anthropic.tools.webSearch_20250305(),
+    };
 
     // 4. Build system prompt
     const availableToolNames = Object.keys(allTools);
@@ -121,12 +127,13 @@ export class PersonalAssistant {
     ].join("\n");
 
     // 5. Stream response
+    const modelMessages = await convertToModelMessages(messages);
     const result = streamText({
       model: anthropic(config.models.chat),
       system: systemPrompt,
-      messages,
+      messages: modelMessages,
       tools: allTools,
-      maxSteps: 10,
+      stopWhen: stepCountIs(10),
       onError: (err) => {
         console.error("[assistant] Stream error:", err);
       },

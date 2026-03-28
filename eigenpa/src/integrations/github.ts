@@ -37,7 +37,7 @@ export const github: IntegrationDefinition = {
       github_list_repos: tool({
         description:
           "List repositories the user has access to, sorted by most recently pushed",
-        parameters: z.object({
+        inputSchema: z.object({
           perPage: z
             .number()
             .optional()
@@ -77,7 +77,7 @@ export const github: IntegrationDefinition = {
       github_list_issues: tool({
         description:
           "List issues for a repository, optionally filtered by state and labels",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner (user or org)"),
           repo: z.string().describe("Repository name"),
           state: z
@@ -133,7 +133,7 @@ export const github: IntegrationDefinition = {
 
       github_get_issue: tool({
         description: "Get details of a specific issue including its body",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner"),
           repo: z.string().describe("Repository name"),
           issueNumber: z.number().describe("Issue number"),
@@ -175,7 +175,7 @@ export const github: IntegrationDefinition = {
       github_list_prs: tool({
         description:
           "List pull requests for a repository, optionally filtered by state",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner"),
           repo: z.string().describe("Repository name"),
           state: z
@@ -223,7 +223,7 @@ export const github: IntegrationDefinition = {
       github_get_pr: tool({
         description:
           "Get details of a specific pull request including its body and diff stats",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner"),
           repo: z.string().describe("Repository name"),
           prNumber: z.number().describe("Pull request number"),
@@ -266,7 +266,7 @@ export const github: IntegrationDefinition = {
       github_get_file: tool({
         description:
           "Read the contents of a file from a repository at a given ref (branch, tag, or commit)",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner"),
           repo: z.string().describe("Repository name"),
           path: z.string().describe("File path within the repository"),
@@ -304,7 +304,7 @@ export const github: IntegrationDefinition = {
 
       github_list_directory: tool({
         description: "List files and directories at a path in a repository",
-        parameters: z.object({
+        inputSchema: z.object({
           owner: z.string().describe("Repository owner"),
           repo: z.string().describe("Repository name"),
           path: z
@@ -345,7 +345,7 @@ export const github: IntegrationDefinition = {
       github_search_code: tool({
         description:
           "Search for code across repositories using GitHub's code search",
-        parameters: z.object({
+        inputSchema: z.object({
           query: z
             .string()
             .describe(

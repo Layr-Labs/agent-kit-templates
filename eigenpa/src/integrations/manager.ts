@@ -1,5 +1,5 @@
 import type { Database } from "@tursodatabase/database";
-import type { CoreTool } from "ai";
+import type { Tool } from "ai";
 import type {
   IntegrationCredentials,
   IntegrationRow,
@@ -83,9 +83,9 @@ export async function removeIntegration(
 export async function assembleIntegrationTools(
   db: Database,
   sessionCredentials: SessionCredentials
-): Promise<Record<string, CoreTool>> {
+): Promise<Record<string, Tool>> {
   const rows = await getEnabledIntegrations(db);
-  const tools: Record<string, CoreTool> = {};
+  const tools: Record<string, Tool> = {};
 
   for (const row of rows) {
     const definition = getIntegration(row.integration_id);

@@ -1,4 +1,4 @@
-import type { CoreTool } from "ai";
+import type { Tool } from "ai";
 
 /**
  * Credentials for a single integration, stored in the session cookie.
@@ -47,7 +47,7 @@ export interface IntegrationDefinition {
    * Factory that produces tools for the agent.
    * Called on each request with the user's credentials and config.
    */
-  createTools(ctx: IntegrationContext): Record<string, CoreTool>;
+  createTools(ctx: IntegrationContext): Record<string, Tool>;
 }
 
 export interface CredentialField {

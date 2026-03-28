@@ -18,7 +18,7 @@ export function makeScheduleTools(db: Database, address: string) {
         "Create a new recurring scheduled task. Use this when the user wants something done automatically " +
         "on a regular basis (e.g., 'check my email every morning', 'summarize my calendar every day at 8am'). " +
         "IMPORTANT: The user must have background tasks enabled (delegated) for scheduled tasks to run.",
-      parameters: z.object({
+      inputSchema: z.object({
         name: z
           .string()
           .describe("Short name for the task (e.g., 'Morning email check')"),
@@ -65,7 +65,7 @@ export function makeScheduleTools(db: Database, address: string) {
     list_scheduled_tasks: tool({
       description:
         "List all scheduled tasks for the user, showing their status and next run time.",
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => {
         const rows = (await db
           .prepare("SELECT * FROM scheduled_tasks ORDER BY id")
@@ -94,7 +94,7 @@ export function makeScheduleTools(db: Database, address: string) {
     update_scheduled_task: tool({
       description:
         "Update an existing scheduled task's name, description, cron expression, or enabled state.",
-      parameters: z.object({
+      inputSchema: z.object({
         taskId: z.number().describe("ID of the task to update"),
         name: z.string().optional().describe("New name"),
         description: z.string().optional().describe("New description/instructions"),
@@ -152,7 +152,7 @@ export function makeScheduleTools(db: Database, address: string) {
 
     delete_scheduled_task: tool({
       description: "Permanently delete a scheduled task.",
-      parameters: z.object({
+      inputSchema: z.object({
         taskId: z.number().describe("ID of the task to delete"),
       }),
       execute: async ({ taskId }) => {

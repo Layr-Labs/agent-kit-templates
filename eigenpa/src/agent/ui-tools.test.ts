@@ -45,10 +45,10 @@ describe("UI tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUITools(db);
 
-      const result = await tools.show_integration_signin.execute(
+      const result = await tools.show_integration_signin.execute!(
         { integrationId: "google-calendar", reason: "Need calendar access" },
         toolCtx
-      );
+      ) as any;
 
       expect(result.type).toBe("oauth_prompt");
       expect(result.integrationId).toBe("google-calendar");
@@ -61,10 +61,10 @@ describe("UI tools", () => {
       await enableIntegration(db, "google-calendar");
 
       const tools = makeUITools(db);
-      const result = await tools.show_integration_signin.execute(
+      const result = await tools.show_integration_signin.execute!(
         { integrationId: "google-calendar", reason: "test" },
         toolCtx
-      );
+      ) as any;
 
       expect(result.type).toBe("already_enabled");
       expect(result.integrationId).toBe("google-calendar");
@@ -86,10 +86,10 @@ describe("UI tools", () => {
         },
       ];
 
-      const result = await tools.show_event_list.execute(
+      const result = await tools.show_event_list.execute!(
         { events },
         toolCtx
-      );
+      ) as any;
 
       expect(result.type).toBe("event_list");
       expect(result.events).toHaveLength(2);
@@ -112,10 +112,10 @@ describe("UI tools", () => {
         },
       ];
 
-      const result = await tools.show_email_preview.execute(
+      const result = await tools.show_email_preview.execute!(
         { emails },
         toolCtx
-      );
+      ) as any;
 
       expect(result.type).toBe("email_preview");
       expect(result.emails).toHaveLength(1);

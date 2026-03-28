@@ -7,7 +7,7 @@ export function makeUserTools(db: Database) {
     save_memory: tool({
       description:
         "Save or update a fact about the user (name, preferences, role, goals, etc.)",
-      parameters: z.object({
+      inputSchema: z.object({
         key: z.string().describe("Short label for the fact"),
         value: z.string().describe("The fact to remember"),
       }),
@@ -24,7 +24,7 @@ export function makeUserTools(db: Database) {
 
     recall_memories: tool({
       description: "Retrieve all stored facts about the user",
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => {
         const rows = (await db
           .prepare("SELECT key, value FROM memories ORDER BY key")
@@ -37,7 +37,7 @@ export function makeUserTools(db: Database) {
     search_history: tool({
       description:
         "Search past conversation history for relevant context on a topic",
-      parameters: z.object({
+      inputSchema: z.object({
         query: z.string().describe("What to search for in past conversations"),
         limit: z
           .number()

@@ -47,7 +47,7 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      const result = await tools.create_scheduled_task.execute(
+      const result = await tools.create_scheduled_task.execute!(
         { name: "Test", description: "test task", cron: "0 8 * * *" },
         toolCtx
       );
@@ -64,7 +64,7 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      const result = await tools.create_scheduled_task.execute(
+      const result = await tools.create_scheduled_task.execute!(
         {
           name: "Morning email",
           description: "Check email and summarize",
@@ -86,7 +86,7 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      const result = await tools.create_scheduled_task.execute(
+      const result = await tools.create_scheduled_task.execute!(
         { name: "Bad", description: "test", cron: "invalid" },
         toolCtx
       );
@@ -99,7 +99,7 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      const result = await tools.list_scheduled_tasks.execute({}, toolCtx);
+      const result = await tools.list_scheduled_tasks.execute!({}, toolCtx);
       expect(result).toBe("No scheduled tasks.");
     });
 
@@ -113,16 +113,16 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      await tools.create_scheduled_task.execute(
+      await tools.create_scheduled_task.execute!(
         { name: "Task A", description: "do A", cron: "0 8 * * *" },
         toolCtx
       );
-      await tools.create_scheduled_task.execute(
+      await tools.create_scheduled_task.execute!(
         { name: "Task B", description: "do B", cron: "0 9 * * 1-5" },
         toolCtx
       );
 
-      const result = await tools.list_scheduled_tasks.execute({}, toolCtx);
+      const result = await tools.list_scheduled_tasks.execute!({}, toolCtx);
       expect(result).toContain("Task A");
       expect(result).toContain("Task B");
       expect(result).toContain("ACTIVE");
@@ -140,18 +140,18 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      await tools.create_scheduled_task.execute(
+      await tools.create_scheduled_task.execute!(
         { name: "Temp", description: "temp", cron: "0 8 * * *" },
         toolCtx
       );
 
-      const result = await tools.delete_scheduled_task.execute(
+      const result = await tools.delete_scheduled_task.execute!(
         { taskId: 1 },
         toolCtx
       );
       expect(result).toContain("deleted");
 
-      const list = await tools.list_scheduled_tasks.execute({}, toolCtx);
+      const list = await tools.list_scheduled_tasks.execute!({}, toolCtx);
       expect(list).toBe("No scheduled tasks.");
     });
 
@@ -159,7 +159,7 @@ describe("schedule tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeScheduleTools(db, address);
 
-      const result = await tools.delete_scheduled_task.execute(
+      const result = await tools.delete_scheduled_task.execute!(
         { taskId: 999 },
         toolCtx
       );

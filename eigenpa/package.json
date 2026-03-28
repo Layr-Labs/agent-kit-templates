@@ -14,12 +14,12 @@
     "site:build": "vite build --config site/vite.config.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1",
+    "@ai-sdk/anthropic": "^3.0.64",
     "@fastify/rate-limit": "^10",
     "@fastify/static": "^8",
     "@noble/hashes": "^1",
     "@tursodatabase/database": "latest",
-    "ai": "^4",
+    "ai": "^6.0.141",
     "fastify": "^5",
     "iron-session": "^8",
     "react-markdown": "^10.1.0",
@@ -33,7 +33,7 @@
     "zod": "^3"
   },
   "devDependencies": {
-    "@ai-sdk/react": "^1",
+    "@ai-sdk/react": "^3.0.143",
     "@rainbow-me/rainbowkit": "^2",
     "@tanstack/react-query": "^5",
     "@types/bun": "latest",

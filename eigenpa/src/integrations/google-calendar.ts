@@ -29,7 +29,7 @@ export const googleCalendar: IntegrationDefinition = {
         description:
           "List all calendars the user has access to. Use this first to discover which calendars to query — " +
           "events may be spread across multiple calendars (work, personal, shared, etc.).",
-        parameters: z.object({}),
+        inputSchema: z.object({}),
         execute: async () => {
           const res = await fetch(
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
@@ -60,7 +60,7 @@ export const googleCalendar: IntegrationDefinition = {
           "IMPORTANT: Always set both timeMin and timeMax to get accurate results for a specific day or range. " +
           "For example, to check tomorrow, set timeMin to tomorrow 00:00 and timeMax to tomorrow 23:59. " +
           "Use calendarId 'primary' for the user's main calendar, or a specific calendar ID from calendar_list_calendars.",
-        parameters: z.object({
+        inputSchema: z.object({
           calendarId: z
             .string()
             .optional()
@@ -121,7 +121,7 @@ export const googleCalendar: IntegrationDefinition = {
 
       calendar_create_event: tool({
         description: "Create a new event on the user's Google Calendar",
-        parameters: z.object({
+        inputSchema: z.object({
           calendarId: z
             .string()
             .optional()

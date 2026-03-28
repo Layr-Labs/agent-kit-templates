@@ -44,7 +44,7 @@ describe("agent tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUserTools(db);
 
-      const result = await tools.save_memory.execute(
+      const result = await tools.save_memory.execute!(
         { key: "name", value: "Alice" },
         toolCtx
       );
@@ -62,11 +62,11 @@ describe("agent tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUserTools(db);
 
-      await tools.save_memory.execute(
+      await tools.save_memory.execute!(
         { key: "name", value: "Alice" },
         toolCtx
       );
-      await tools.save_memory.execute(
+      await tools.save_memory.execute!(
         { key: "name", value: "Bob" },
         toolCtx
       );
@@ -84,7 +84,7 @@ describe("agent tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUserTools(db);
 
-      const result = await tools.recall_memories.execute({}, toolCtx);
+      const result = await tools.recall_memories.execute!({}, toolCtx);
       expect(result).toBe("No memories stored yet.");
     });
 
@@ -92,16 +92,16 @@ describe("agent tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUserTools(db);
 
-      await tools.save_memory.execute(
+      await tools.save_memory.execute!(
         { key: "name", value: "Alice" },
         toolCtx
       );
-      await tools.save_memory.execute(
+      await tools.save_memory.execute!(
         { key: "role", value: "engineer" },
         toolCtx
       );
 
-      const result = await tools.recall_memories.execute({}, toolCtx);
+      const result = await tools.recall_memories.execute!({}, toolCtx);
       expect(result).toContain("- name: Alice");
       expect(result).toContain("- role: engineer");
     });
@@ -112,7 +112,7 @@ describe("agent tools", () => {
       const db = await router.getConnection(address, randomHexKey());
       const tools = makeUserTools(db);
 
-      const result = await tools.search_history.execute(
+      const result = await tools.search_history.execute!(
         { query: "nonexistent", limit: 10 },
         toolCtx
       );
@@ -134,7 +134,7 @@ describe("agent tools", () => {
         )
         .run("s1", "assistant", "TypeScript is a typed superset of JavaScript");
 
-      const result = await tools.search_history.execute(
+      const result = await tools.search_history.execute!(
         { query: "TypeScript", limit: 10 },
         toolCtx
       );
@@ -154,10 +154,10 @@ describe("agent tools", () => {
           .run("s1", "user", `Question ${i} about testing`);
       }
 
-      const result = await tools.search_history.execute(
+      const result = await tools.search_history.execute!(
         { query: "testing", limit: 2 },
         toolCtx
-      );
+      ) as string;
 
       const lines = result.split("\n");
       expect(lines).toHaveLength(2);

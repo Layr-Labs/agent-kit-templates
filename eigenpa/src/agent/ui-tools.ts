@@ -16,7 +16,7 @@ export function makeUITools(db: Database) {
         "Prompt the user to sign in to an integration they haven't connected yet. " +
         "Use this when you need access to a service (calendar, email, etc.) that the user hasn't enabled. " +
         "The UI will render a sign-in button inline in the chat.",
-      parameters: z.object({
+      inputSchema: z.object({
         integrationId: z
           .string()
           .describe(
@@ -50,7 +50,7 @@ export function makeUITools(db: Database) {
       description:
         "Display a rich visual list of calendar events to the user. " +
         "Use this after fetching events via calendar_list_events to present them nicely.",
-      parameters: z.object({
+      inputSchema: z.object({
         events: z.array(
           z.object({
             title: z.string(),
@@ -70,7 +70,7 @@ export function makeUITools(db: Database) {
       description:
         "Display a rich preview of emails to the user. " +
         "Use this after fetching emails via gmail_list_messages to present them visually.",
-      parameters: z.object({
+      inputSchema: z.object({
         emails: z.array(
           z.object({
             from: z.string(),
