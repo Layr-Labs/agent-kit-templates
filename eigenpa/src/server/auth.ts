@@ -60,46 +60,56 @@ export async function authRoutes(app: FastifyInstance) {
   app.post<{ Body: { message: string; signature: string } }>(
     "/verify",
     async (req, reply) => {
-      const { message, signature } = req.body;
-      const session = await getSession(req, reply);
+      try {
+        const { message, signature } = req.body;
+        const session = await getSession(req, reply);
 
-      const siweMessage = new SiweMessage(message);
-      const { data } = await siweMessage.verify({
-        signature,
-        nonce: session.nonce,
-      });
+        const siweMessage = new SiweMessage(message);
+        const { data } = await siweMessage.verify({
+          signature,
+          nonce: session.nonce,
+        });
 
-      session.address = data.address;
-      session.nonce = undefined;
-      await session.save();
+        session.address = data.address;
+        session.nonce = undefined;
+        await session.save();
 
-      return { address: data.address };
+        return { address: data.address };
+      } catch (err) {
+        req.log.error(err);
+        return reply.code(400).send({ error: "Signature verification failed" });
+      }
     }
   );
 
   app.post<{ Body: { keySig: string } }>("/unlock", async (req, reply) => {
-    const session = await getSession(req, reply);
-    if (!session.address) {
-      return reply.code(401).send({ error: "Not authenticated" });
+    try {
+      const session = await getSession(req, reply);
+      if (!session.address) {
+        return reply.code(401).send({ error: "Not authenticated" });
+      }
+
+      const { keySig } = req.body;
+      const message = keyDerivationMessage(session.address);
+
+      const valid = await verifyMessage({
+        address: session.address as `0x${string}`,
+        message,
+        signature: keySig as `0x${string}`,
+      });
+
+      if (!valid) {
+        return reply.code(403).send({ error: "Invalid key signature" });
+      }
+
+      session.encKey = deriveEncryptionKey(keySig, session.address);
+      await session.save();
+
+      return { ok: true };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(400).send({ error: "Key derivation failed" });
     }
-
-    const { keySig } = req.body;
-    const message = keyDerivationMessage(session.address);
-
-    const valid = await verifyMessage({
-      address: session.address as `0x${string}`,
-      message,
-      signature: keySig as `0x${string}`,
-    });
-
-    if (!valid) {
-      return reply.code(403).send({ error: "Invalid key signature" });
-    }
-
-    session.encKey = deriveEncryptionKey(keySig, session.address);
-    await session.save();
-
-    return { ok: true };
   });
 
   app.post("/logout", async (req, reply) => {

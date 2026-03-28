@@ -34,8 +34,8 @@ describe("config", () => {
 
   it("has valid model identifiers", async () => {
     const config = await freshLoadConfig();
-    expect(config.models.chat).toContain("anthropic/");
-    expect(config.models.task).toContain("anthropic/");
+    expect(config.models.chat).toContain("claude");
+    expect(config.models.task).toContain("claude");
     expect(config.models.embed).toContain("voyage");
   });
 
@@ -43,8 +43,8 @@ describe("config", () => {
     const { parse } = await import("smol-toml");
     const toml = `
 [models]
-chat = "anthropic/claude-sonnet-4-6-20250514"
-task = "anthropic/claude-haiku-4-5-20251001"
+chat = "claude-sonnet-4-6-20250514"
+task = "claude-haiku-4-5-20251001"
 embed = "voyage-3"
 [server]
 port = 3000
@@ -57,8 +57,8 @@ cipher = "aegis256"
 dir = "/tmp/test"
 `;
     const config = parse(toml) as any;
-    expect(config.models.chat).toBe("anthropic/claude-sonnet-4-6-20250514");
-    expect(config.models.task).toBe("anthropic/claude-haiku-4-5-20251001");
+    expect(config.models.chat).toBe("claude-sonnet-4-6-20250514");
+    expect(config.models.task).toBe("claude-haiku-4-5-20251001");
     expect(config.models.chat).not.toBe(config.models.task);
   });
 });

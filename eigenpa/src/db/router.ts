@@ -1,6 +1,6 @@
-import { connect, type Database } from "@tursodatabase/database";
+import { Database, connect } from "@tursodatabase/database";
 import { mkdirSync, existsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadConfig } from "../config/index.js";
 import { SCHEMA } from "./schema.js";
 
@@ -16,7 +16,8 @@ export class DBRouter {
 
   constructor(opts?: DBRouterOptions) {
     const config = loadConfig();
-    this.dataDir = config.data.dir;
+    // Resolve to absolute path so file URIs work correctly
+    this.dataDir = resolve(config.data.dir);
     this.skipEncryption = opts?.skipEncryption ?? false;
     mkdirSync(this.dataDir, { recursive: true });
   }
@@ -33,15 +34,8 @@ export class DBRouter {
 
     const dbPath = join(this.dataDir, `${cacheKey}.db`);
 
-    let db: Database;
-    if (!this.skipEncryption) {
-      const config = loadConfig();
-      db = await connect(
-        `file:${dbPath}?cipher=${config.encryption.cipher}&hexkey=${encKey}`
-      );
-    } else {
-      db = await connect(dbPath);
-    }
+    // connect() handles both creation and opening, returns a connected Database
+    const db = await connect(dbPath);
 
     for (const stmt of SCHEMA) {
       await db.exec(stmt);

@@ -28,7 +28,21 @@ export async function createServer() {
   const dbRouter = new DBRouter();
   const assistant = new PersonalAssistant(dbRouter);
 
-  await app.register(rateLimit, { max: 60, timeWindow: "1 minute" });
+  await app.register(rateLimit, {
+    max: 120,
+    timeWindow: "1 minute",
+    allowList: (req) => !req.url.startsWith("/api/"),
+  });
+
+  // Global error handler — never leak internal details to clients
+  app.setErrorHandler((error: any, req, reply) => {
+    req.log.error(error);
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      return reply.code(500).send({ error: "Internal server error" });
+    }
+    return reply.code(status).send({ error: error.message ?? "Request failed" });
+  });
 
   // Auth routes
   await app.register(authRoutes, { prefix: "/api/auth" });
@@ -52,15 +66,21 @@ export async function createServer() {
         return reply.code(400).send({ error: "Messages are required" });
       }
 
-      const result = await assistant.streamMessage(
-        session.address,
-        session.encKey,
-        messages as any,
-        session.integrationCredentials ?? {}
-      );
+      try {
+        const result = await assistant.streamMessage(
+          session.address,
+          session.encKey,
+          messages as any,
+          session.integrationCredentials ?? {}
+        );
 
-      // Pipe the AI SDK data stream as SSE to the response
-      result.pipeDataStreamToResponse(reply.raw);
+        // Hand off to raw response for SSE streaming
+        reply.hijack();
+        result.pipeDataStreamToResponse(reply.raw);
+      } catch (err) {
+        req.log.error(err);
+        return reply.code(500).send({ error: "Failed to process message" });
+      }
     }
   );
 

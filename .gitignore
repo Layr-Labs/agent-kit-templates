@@ -12,3 +12,4 @@ output/playwright/
 .test-data/
 coverage/
 bun.lock
+data/

@@ -55,7 +55,7 @@ export const github: IntegrationDefinition = {
             sort: "pushed",
             type,
           });
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const repos = (await res.json()) as Array<{
             full_name: string;
             description: string | null;
@@ -108,7 +108,7 @@ export const github: IntegrationDefinition = {
             token,
             params
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const issues = (await res.json()) as Array<{
             number: number;
             title: string;
@@ -143,7 +143,7 @@ export const github: IntegrationDefinition = {
             `/repos/${owner}/${repo}/issues/${issueNumber}`,
             token
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const issue = (await res.json()) as {
             number: number;
             title: string;
@@ -199,7 +199,7 @@ export const github: IntegrationDefinition = {
               sort: "updated",
             }
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const prs = (await res.json()) as Array<{
             number: number;
             title: string;
@@ -233,7 +233,7 @@ export const github: IntegrationDefinition = {
             `/repos/${owner}/${repo}/pulls/${prNumber}`,
             token
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const pr = (await res.json()) as {
             number: number;
             title: string;
@@ -284,7 +284,7 @@ export const github: IntegrationDefinition = {
             token,
             params
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const data = (await res.json()) as {
             type: string;
             content?: string;
@@ -326,7 +326,7 @@ export const github: IntegrationDefinition = {
             token,
             params
           );
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const items = (await res.json()) as Array<{
             name: string;
             type: string;
@@ -362,7 +362,7 @@ export const github: IntegrationDefinition = {
             q: query,
             per_page: String(perPage),
           });
-          if (!res.ok) return `GitHub API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `GitHub API error: request failed (${res.status})`;
           const data = (await res.json()) as {
             total_count: number;
             items: Array<{

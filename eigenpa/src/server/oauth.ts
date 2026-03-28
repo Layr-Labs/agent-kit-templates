@@ -129,8 +129,8 @@ export async function oauthRoutes(
     });
 
     if (!tokenRes.ok) {
-      const err = await tokenRes.text();
-      return reply.code(502).send({ error: `Token exchange failed: ${err}` });
+      req.log.error(`OAuth token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`);
+      return reply.code(502).send({ error: "OAuth token exchange failed" });
     }
 
     const tokens = (await tokenRes.json()) as {

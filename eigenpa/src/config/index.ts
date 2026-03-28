@@ -45,9 +45,12 @@ export function loadConfig(): Config {
 
   cached = parse(raw) as unknown as Config;
 
-  // Allow env var overrides for data dir
+  // Allow env var overrides
   if (process.env.DATA_DIR) {
     cached.data.dir = process.env.DATA_DIR;
+  }
+  if (process.env.PORT) {
+    cached.server.port = parseInt(process.env.PORT, 10);
   }
 
   return cached;

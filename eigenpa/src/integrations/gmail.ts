@@ -49,7 +49,7 @@ export const gmail: IntegrationDefinition = {
 
           const listRes = await fetch(url.toString(), { headers });
           if (!listRes.ok)
-            return `Gmail API error: ${listRes.status} ${await listRes.text()}`;
+            return `Gmail API error: request failed (${listRes.status})`;
           const listData = await listRes.json();
           const messageIds = (listData.messages ?? []) as Array<{ id: string }>;
           if (!messageIds.length) return "No messages found.";
@@ -107,7 +107,7 @@ export const gmail: IntegrationDefinition = {
               body: JSON.stringify({ raw: encoded }),
             }
           );
-          if (!res.ok) return `Gmail API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `Gmail API error: request failed (${res.status})`;
           const sent = await res.json();
           return `Email sent to ${to} (message ID: ${sent.id})`;
         },

@@ -1,6 +1,6 @@
 [models]
-chat = "anthropic/claude-sonnet-4-6-20250514"
-task = "anthropic/claude-sonnet-4-6-20250514"
+chat = "claude-sonnet-4-20250514"
+task = "claude-sonnet-4-20250514"
 embed = "voyage-3"
 
 [server]

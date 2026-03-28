@@ -52,7 +52,7 @@ export const googleCalendar: IntegrationDefinition = {
           url.searchParams.set("orderBy", "startTime");
 
           const res = await fetch(url.toString(), { headers });
-          if (!res.ok) return `Calendar API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `Calendar API error: request failed (${res.status})`;
           const data = await res.json();
           const items = (data.items ?? []) as Array<{
             summary?: string;
@@ -94,7 +94,7 @@ export const googleCalendar: IntegrationDefinition = {
               end: { dateTime: endTime },
             }),
           });
-          if (!res.ok) return `Calendar API error: ${res.status} ${await res.text()}`;
+          if (!res.ok) return `Calendar API error: request failed (${res.status})`;
           const event = await res.json();
           return `Created event "${event.summary}" (${event.htmlLink})`;
         },
