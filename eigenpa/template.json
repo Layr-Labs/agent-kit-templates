@@ -1,0 +1,30 @@
+{
+  "id": "eigenpa",
+  "name": "EigenPA",
+  "description": "Per-user personal assistant with Ethereum wallet auth and encrypted per-user databases",
+  "dockerImageTag": "agentkit-eigenpa:latest",
+  "platforms": [],
+  "requiredFiles": [
+    {
+      "path": "SOUL.md",
+      "envVar": "SOUL_MD_B64",
+      "encoding": "base64"
+    },
+    {
+      "path": "constitution.md",
+      "envVar": "CONSTITUTION_MD_B64",
+      "encoding": "base64"
+    },
+    {
+      "path": "config.toml",
+      "envVar": "CONFIG_TOML_B64",
+      "encoding": "base64"
+    }
+  ],
+  "requiredEnv": [
+    "SESSION_SECRET",
+    "ANTHROPIC_API_KEY",
+    "VOYAGEAI_API_KEY",
+    "VITE_WC_PROJECT_ID"
+  ]
+}

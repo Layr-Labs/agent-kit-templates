@@ -1,0 +1,46 @@
+{
+  "name": "eigenpa",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run site:build && bun --watch src/main.ts",
+    "start": "bun run site:build && bun src/main.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "site:dev": "vite dev --config site/vite.config.ts",
+    "site:build": "vite build --config site/vite.config.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1",
+    "@fastify/rate-limit": "^10",
+    "@fastify/static": "^8",
+    "@noble/hashes": "^1",
+    "@tursodatabase/database": "latest",
+    "ai": "^4",
+    "fastify": "^5",
+    "iron-session": "^8",
+    "siwe": "^2",
+    "smol-toml": "^1",
+    "viem": "^2",
+    "voyageai": "^0.2",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@rainbow-me/rainbowkit": "^2",
+    "@tanstack/react-query": "^5",
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "react": "^19",
+    "react-dom": "^19",
+    "@vitest/coverage-v8": "^3",
+    "typescript": "^5.5",
+    "vitest": "^3",
+    "vite": "^6",
+    "wagmi": "^2"
+  }
+}
