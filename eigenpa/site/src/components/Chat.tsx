@@ -4,6 +4,7 @@ import { OAuthButton } from "./OAuthButton";
 import { EventList } from "./EventList";
 import { EmailPreview } from "./EmailPreview";
 import { Markdown } from "./Markdown";
+import { LocationButton } from "./LocationButton";
 
 export function Chat({ address }: { address: string }) {
   const { messages, input, handleInputChange, handleSubmit, isLoading, append } =
@@ -35,6 +36,16 @@ export function Chat({ address }: { address: string }) {
     [messages, append]
   );
 
+  const handleLocationShared = useCallback(
+    (lat: number, lng: number) => {
+      append({
+        role: "user",
+        content: `My location is: latitude ${lat}, longitude ${lng}. Please continue with what you were doing.`,
+      });
+    },
+    [append]
+  );
+
   function renderToolResult(toolName: string, result: any) {
     if (toolName === "show_integration_signin") {
       if (result.type === "already_enabled") return null;
@@ -45,6 +56,14 @@ export function Chat({ address }: { address: string }) {
           reason={result.reason}
           oauthUrl={result.oauthUrl}
           onConnected={handleOAuthConnected}
+        />
+      );
+    }
+    if (toolName === "request_location") {
+      return (
+        <LocationButton
+          reason={result.reason}
+          onLocationShared={handleLocationShared}
         />
       );
     }

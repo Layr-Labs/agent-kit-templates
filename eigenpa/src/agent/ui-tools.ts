@@ -66,6 +66,22 @@ export function makeUITools(db: Database) {
       }),
     }),
 
+    request_location: tool({
+      description:
+        "Request the user's current location via their browser. " +
+        "Use this when you need the user's geographic location (e.g., for weather, local recommendations, timezone). " +
+        "The UI will render a 'Share Location' button. The user must approve the browser permission prompt.",
+      inputSchema: z.object({
+        reason: z
+          .string()
+          .describe("Brief explanation of why you need the location — shown to the user"),
+      }),
+      execute: async ({ reason }) => ({
+        type: "location_request" as const,
+        reason,
+      }),
+    }),
+
     show_email_preview: tool({
       description:
         "Display a rich preview of emails to the user. " +
