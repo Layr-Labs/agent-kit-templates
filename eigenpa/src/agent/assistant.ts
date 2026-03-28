@@ -98,10 +98,11 @@ export class PersonalAssistant {
     const allTools = { ...userTools, ...uiTools, ...scheduleTools, ...integrationTools };
 
     // 4. Build system prompt
-    const enabledIntegrationIds = Object.keys(integrationCredentials);
-    const integrationStatus = enabledIntegrationIds.length
-      ? `Enabled: ${enabledIntegrationIds.join(", ")}`
-      : "None connected yet.";
+    const availableToolNames = Object.keys(allTools);
+    const integrationToolNames = Object.keys(integrationTools);
+    const integrationStatus = integrationToolNames.length
+      ? `Connected (tools available): ${integrationToolNames.join(", ")}`
+      : "None connected. Use show_integration_signin to prompt the user to connect one.";
 
     const systemPrompt = [
       soul,
@@ -126,6 +127,9 @@ export class PersonalAssistant {
       messages,
       tools: allTools,
       maxSteps: 10,
+      onError: (err) => {
+        console.error("[assistant] Stream error:", err);
+      },
       onFinish: async ({ text }) => {
         // Persist conversation after stream completes
         if (queryText && text) {

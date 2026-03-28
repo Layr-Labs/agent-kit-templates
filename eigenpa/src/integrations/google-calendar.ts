@@ -23,48 +23,98 @@ export const googleCalendar: IntegrationDefinition = {
       Authorization: `Bearer ${ctx.credentials.access_token}`,
       "Content-Type": "application/json",
     };
-    const calendarId =
-      (ctx.config.calendar_id as string) ?? "primary";
 
     return {
+      calendar_list_calendars: tool({
+        description:
+          "List all calendars the user has access to. Use this first to discover which calendars to query — " +
+          "events may be spread across multiple calendars (work, personal, shared, etc.).",
+        parameters: z.object({}),
+        execute: async () => {
+          const res = await fetch(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            { headers }
+          );
+          if (!res.ok)
+            return `Calendar API error: request failed (${res.status})`;
+          const data = await res.json();
+          const calendars = (data.items ?? []) as Array<{
+            id: string;
+            summary: string;
+            primary?: boolean;
+            accessRole: string;
+          }>;
+          if (!calendars.length) return "No calendars found.";
+          return calendars
+            .map(
+              (c) =>
+                `- ${c.summary}${c.primary ? " (primary)" : ""} [${c.accessRole}] id: ${c.id}`
+            )
+            .join("\n");
+        },
+      }),
+
       calendar_list_events: tool({
         description:
-          "List upcoming events from the user's Google Calendar",
+          "List events from a Google Calendar within a time range. " +
+          "IMPORTANT: Always set both timeMin and timeMax to get accurate results for a specific day or range. " +
+          "For example, to check tomorrow, set timeMin to tomorrow 00:00 and timeMax to tomorrow 23:59. " +
+          "Use calendarId 'primary' for the user's main calendar, or a specific calendar ID from calendar_list_calendars.",
         parameters: z.object({
+          calendarId: z
+            .string()
+            .optional()
+            .default("primary")
+            .describe(
+              "Calendar ID to query. Use 'primary' for the main calendar or a specific ID."
+            ),
           maxResults: z
             .number()
             .optional()
-            .default(10)
+            .default(25)
             .describe("Maximum number of events to return"),
           timeMin: z
             .string()
+            .describe(
+              "Start of time range (ISO 8601). Required — e.g., '2026-03-28T00:00:00-05:00'"
+            ),
+          timeMax: z
+            .string()
             .optional()
-            .describe("Start time (ISO 8601). Defaults to now."),
+            .describe(
+              "End of time range (ISO 8601). Strongly recommended — e.g., '2026-03-28T23:59:59-05:00'"
+            ),
         }),
-        execute: async ({ maxResults, timeMin }) => {
-          const min = timeMin ?? new Date().toISOString();
+        execute: async ({ calendarId, maxResults, timeMin, timeMax }) => {
           const url = new URL(
             `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`
           );
           url.searchParams.set("maxResults", String(maxResults));
-          url.searchParams.set("timeMin", min);
+          url.searchParams.set("timeMin", timeMin);
+          if (timeMax) url.searchParams.set("timeMax", timeMax);
           url.searchParams.set("singleEvents", "true");
           url.searchParams.set("orderBy", "startTime");
 
           const res = await fetch(url.toString(), { headers });
-          if (!res.ok) return `Calendar API error: request failed (${res.status})`;
+          if (!res.ok)
+            return `Calendar API error: request failed (${res.status})`;
           const data = await res.json();
           const items = (data.items ?? []) as Array<{
             summary?: string;
             start?: { dateTime?: string; date?: string };
             end?: { dateTime?: string; date?: string };
+            location?: string;
+            description?: string;
           }>;
-          if (!items.length) return "No upcoming events found.";
+          if (!items.length) return "No events found in this time range.";
           return items
-            .map(
-              (e) =>
-                `- ${e.summary ?? "(no title)"}: ${e.start?.dateTime ?? e.start?.date ?? "?"} → ${e.end?.dateTime ?? e.end?.date ?? "?"}`
-            )
+            .map((e) => {
+              const start = e.start?.dateTime ?? e.start?.date ?? "?";
+              const end = e.end?.dateTime ?? e.end?.date ?? "?";
+              let line = `- **${e.summary ?? "(no title)"}**: ${start} → ${end}`;
+              if (e.location) line += ` | Location: ${e.location}`;
+              return line;
+            })
             .join("\n");
         },
       }),
@@ -72,6 +122,11 @@ export const googleCalendar: IntegrationDefinition = {
       calendar_create_event: tool({
         description: "Create a new event on the user's Google Calendar",
         parameters: z.object({
+          calendarId: z
+            .string()
+            .optional()
+            .default("primary")
+            .describe("Calendar ID to create the event on"),
           summary: z.string().describe("Event title"),
           startTime: z
             .string()
@@ -81,20 +136,35 @@ export const googleCalendar: IntegrationDefinition = {
             .string()
             .optional()
             .describe("Event description"),
+          location: z
+            .string()
+            .optional()
+            .describe("Event location"),
         }),
-        execute: async ({ summary, startTime, endTime, description }) => {
+        execute: async ({
+          calendarId,
+          summary,
+          startTime,
+          endTime,
+          description,
+          location,
+        }) => {
           const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+          const body: any = {
+            summary,
+            start: { dateTime: startTime },
+            end: { dateTime: endTime },
+          };
+          if (description) body.description = description;
+          if (location) body.location = location;
+
           const res = await fetch(url, {
             method: "POST",
             headers,
-            body: JSON.stringify({
-              summary,
-              description,
-              start: { dateTime: startTime },
-              end: { dateTime: endTime },
-            }),
+            body: JSON.stringify(body),
           });
-          if (!res.ok) return `Calendar API error: request failed (${res.status})`;
+          if (!res.ok)
+            return `Calendar API error: request failed (${res.status})`;
           const event = await res.json();
           return `Created event "${event.summary}" (${event.htmlLink})`;
         },
