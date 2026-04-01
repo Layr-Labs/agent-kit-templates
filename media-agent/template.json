@@ -1,7 +1,7 @@
 {
   "id": "media-agent",
   "name": "Media Agent",
-  "description": "Autonomous media entity that publishes to Twitter and Substack",
+  "description": "Sovereign media entity that publishes to Twitter and Substack",
   "dockerfile": "Dockerfile",
   "caddyfile": "Caddyfile",
   "imageTag": "agentkit-media-agent:latest",

@@ -3,7 +3,7 @@
  *
  * Runs in the background to ensure the agent's compute credits stay funded.
  * Uses AttestClient to derive the app_id, checks the billing API for remaining
- * credits, and when credits drop below a threshold the agent autonomously
+ * credits, and when credits drop below a threshold the agent independently
  * purchases more using its own on-chain USDC + ETH (for gas).
  */
 
