@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "github-reader",
+  "version": "1.0.0",
+  "description": "Search GitHub repositories, read READMEs, and discover trending projects via the GitHub REST API",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_github_repos", "description": "Search GitHub repositories by query, language, and stars" },
+    { "name": "get_repo_readme", "description": "Get a repository's README content" },
+    { "name": "get_github_trending", "description": "Get trending GitHub repositories by language and time range" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_github_repos", "get_repo_readme", "get_github_trending"]
+  },
+  "enabled": true
+}

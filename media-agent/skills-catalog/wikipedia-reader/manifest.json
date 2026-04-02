@@ -1,0 +1,17 @@
+{
+  "apiVersion": 1,
+  "name": "wikipedia-reader",
+  "version": "1.0.0",
+  "description": "Search and read Wikipedia articles — summaries, full text, and cross-language lookups via the Wikipedia REST and Action APIs",
+  "entrypoint": "dist/index.mjs",
+  "sourceEntrypoint": "source/index.ts",
+  "tools": [
+    { "name": "search_wikipedia", "description": "Search Wikipedia articles by query" },
+    { "name": "get_wikipedia_summary", "description": "Get a concise summary of a Wikipedia article" },
+    { "name": "read_wikipedia_article", "description": "Read the full text of a Wikipedia article" }
+  ],
+  "pipelineIntegration": {
+    "scanner": ["search_wikipedia", "get_wikipedia_summary", "read_wikipedia_article"]
+  },
+  "enabled": true
+}
