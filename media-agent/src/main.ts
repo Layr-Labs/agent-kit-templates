@@ -31,6 +31,12 @@ import type { Post, AgentIdentity } from './types.js'
 import type { SkillContext } from './skills/types.js'
 import { ensureInstalledSkillsRoot, getInstalledSkillsRoot } from './skills/installed.js'
 import { SelfBilling, resolveSelfBillingConfig } from './billing/self-billing.js'
+import {
+  OwnershipCertificateManager,
+  resolveOwnershipConfig,
+  substackCredentialGetter,
+  twitterCredentialGetter,
+} from './ownership/certificate.js'
 
 function readFile(path: string): string {
   try {
@@ -73,6 +79,7 @@ async function initTwitterPlatform(config: Config, events: EventBus, ctx: SkillC
   // Store client + provider on context so the twitter skill can create tools from them
   ;(ctx as any).twitterClient = twitter
   ;(ctx as any).twitterProvider = readProvider
+  ;(ctx as any).twitterOAuth = oauth
 
   return new TwitterAdapter(twitter, engagement, twitterScanner)
 }
@@ -269,13 +276,37 @@ async function main() {
     }
   }
 
-  // 14. Start agent loop
+  // 14. Start proof-of-control certificate cron (proves agent can access its platform accounts)
+  let ownershipCert: OwnershipCertificateManager | undefined
+  const ownershipConfig = resolveOwnershipConfig()
+  if (ownershipConfig && signer) {
+    const getCredentials =
+      config.platform === 'substack'
+        ? substackCredentialGetter(
+            config.dataDir,
+            () => (ctx as any).substackClient as any,
+          )
+        : twitterCredentialGetter(
+            config.twitter.bearerToken,
+            config.twitter.username,
+            () => (ctx as any).twitterOAuth as any,
+          )
+
+    ownershipCert = new OwnershipCertificateManager(
+      signer, ownershipConfig, getCredentials, events,
+    )
+    ownershipCert.start()
+    console.log(`Ownership certs: active (checking every ${Math.round(ownershipConfig.checkIntervalMs / 3_600_000)}h)`)
+  }
+
+  // 15. Start agent loop
   const loop = new AgentLoop(events, executor, skills, config, identity)
   const loopPromise = loop.start()
 
   const shutdown = async () => {
     console.log('Shutting down...')
     loop.stop()
+    ownershipCert?.stop()
     selfBilling?.stop()
     await Promise.all([signalCache.persist(), evalCache.persist(), imageCache.persist()])
     skills.stopHotReload()
