@@ -59,17 +59,32 @@ describe("UI tools", () => {
       expect(result.integrationId).toBe("google-calendar");
     });
 
-    it("returns already_enabled when integration is enabled", async () => {
+    it("returns already_enabled when integration is enabled AND has credentials", async () => {
       const db = await router.getConnection(address, randomHexKey());
       await enableIntegration(db, "google-calendar");
 
-      const tools = makeUITools(db, address);
+      const creds = { "google-calendar": { access_token: "tok" } };
+      const tools = makeUITools(db, address, creds);
       const result = (await tools.show_integration_signin.execute!(
         { integrationId: "google-calendar", reason: "test" },
         toolCtx
       )) as any;
 
       expect(result.type).toBe("already_enabled");
+    });
+
+    it("returns oauth_prompt when enabled in DB but no session credentials", async () => {
+      const db = await router.getConnection(address, randomHexKey());
+      await enableIntegration(db, "google-calendar");
+
+      const tools = makeUITools(db, address);
+      const result = (await tools.show_integration_signin.execute!(
+        { integrationId: "google-calendar", reason: "Need access" },
+        toolCtx
+      )) as any;
+
+      expect(result.type).toBe("oauth_prompt");
+      expect(result.reason).toContain("re-authorize");
     });
   });
 

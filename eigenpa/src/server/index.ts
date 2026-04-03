@@ -67,11 +67,17 @@ export async function createServer() {
       }
 
       try {
+        const creds = session.integrationCredentials ?? {};
+        console.log("[chat] integrationCredentials keys:", Object.keys(creds));
+        console.log("[chat] creds present:", Object.fromEntries(
+          Object.entries(creds).map(([k, v]) => [k, v ? `has ${Object.keys(v).length} fields` : "empty"])
+        ));
+
         const result = await assistant.streamMessage(
           session.address,
           session.encKey,
           messages as any,
-          session.integrationCredentials ?? {}
+          creds
         );
 
         // Create a Web Response from the stream, then pipe to Node response

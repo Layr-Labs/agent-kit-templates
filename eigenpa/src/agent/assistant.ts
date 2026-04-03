@@ -123,28 +123,31 @@ export class PersonalAssistant {
     // ── #3: Lazy tool registration ──
     // Only assemble integration tools if the user has credentials.
     const userTools = makeUserTools(db);
-    const uiTools = makeUITools(db, address);
+    const uiTools = makeUITools(db, address, integrationCredentials);
     const scheduleTools = makeScheduleTools(db, address);
 
     const hasAnyCredentials = Object.keys(integrationCredentials).length > 0;
+    console.log("[assistant] hasAnyCredentials:", hasAnyCredentials);
     const integrationTools = hasAnyCredentials
       ? await assembleIntegrationTools(db, integrationCredentials)
       : {};
+    console.log("[assistant] integrationTools keys:", Object.keys(integrationTools));
 
     // ── #1: Custom tool search with deferred loading ──
-    // Core tools (always loaded): memory, UI, web search, tool search itself.
-    // Deferred tools (loaded on demand): schedule tools, integration tools.
-    // Claude uses search_tools to discover deferred tools, which return
-    // tool_reference blocks that the API expands into full definitions.
+    // Core tools (always loaded): memory, UI, web search, integration tools.
+    // Integration tools are core because the model must see them directly to
+    // use them — deferring caused Haiku to claim "I don't have a function"
+    // even when the integration was connected.
+    // Deferred tools (loaded on demand via search_tools): schedule tools.
     const coreTools: Record<string, any> = {
       ...userTools,
       ...uiTools,
+      ...integrationTools,
       web_search: anthropic.tools.webSearch_20250305(),
     };
 
     const deferredTools: Record<string, any> = {
       ...scheduleTools,
-      ...integrationTools,
     };
 
     // Mark deferred tools with providerOptions
@@ -175,9 +178,24 @@ export class PersonalAssistant {
         `## Connected integrations\nTools available: ${integrationToolNames.join(", ")}`
       );
     } else {
-      dynamicSections.push(
-        "## Connected integrations\nNone connected. Use show_integration_signin to prompt the user."
+      // Check if there are enabled integrations in the DB but no credentials
+      // (session expired / server restarted)
+      const enabledRows = await db
+        .prepare("SELECT integration_id FROM integrations WHERE enabled = 1")
+        .all() as Array<{ integration_id: string }>;
+      const staleIntegrations = enabledRows.filter(
+        (r) => !integrationCredentials[r.integration_id]
       );
+      if (staleIntegrations.length) {
+        dynamicSections.push(
+          `## Connected integrations\nThe following integrations are enabled but need re-authorization (session expired): ${staleIntegrations.map((r) => r.integration_id).join(", ")}. ` +
+          "Use show_integration_signin to prompt the user to re-authorize."
+        );
+      } else {
+        dynamicSections.push(
+          "## Connected integrations\nNone connected. Use show_integration_signin to prompt the user."
+        );
+      }
     }
 
     // ── #7: Prompt caching — static prefix is identical across all requests ──

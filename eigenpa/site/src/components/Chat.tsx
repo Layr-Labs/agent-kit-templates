@@ -22,6 +22,11 @@ export function Chat({ address }: { address: string }) {
   const isLoading = status === "streaming" || status === "submitted";
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Command history (up/down arrow)
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef(-1);
+  const savedInputRef = useRef("");
+
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     clearTimeout(scrollTimerRef.current);
@@ -35,10 +40,42 @@ export function Chat({ address }: { address: string }) {
       e?.preventDefault();
       const text = input.trim();
       if (!text || isLoading) return;
+      historyRef.current.push(text);
+      historyIndexRef.current = -1;
+      savedInputRef.current = "";
       sendMessage({ role: "user", content: text });
       setInput("");
     },
     [input, isLoading, sendMessage]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      const history = historyRef.current;
+      if (!history.length) return;
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (historyIndexRef.current === -1) {
+          savedInputRef.current = input;
+          historyIndexRef.current = history.length - 1;
+        } else if (historyIndexRef.current > 0) {
+          historyIndexRef.current--;
+        }
+        setInput(history[historyIndexRef.current]);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (historyIndexRef.current === -1) return;
+        if (historyIndexRef.current < history.length - 1) {
+          historyIndexRef.current++;
+          setInput(history[historyIndexRef.current]);
+        } else {
+          historyIndexRef.current = -1;
+          setInput(savedInputRef.current);
+        }
+      }
+    },
+    [input]
   );
 
   const appendMessage = useCallback(
@@ -381,6 +418,7 @@ export function Chat({ address }: { address: string }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Send a message..."
           disabled={isLoading}
           style={{

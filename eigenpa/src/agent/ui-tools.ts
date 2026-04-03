@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Database } from "@tursodatabase/database";
 import { listIntegrations, getEnabledIntegrations } from "../integrations/index.js";
+import type { SessionCredentials } from "../integrations/index.js";
 import { keyVault } from "../vault/keyvault.js";
 import type { ScheduledTaskRow } from "../scheduler/index.js";
 
@@ -9,7 +10,7 @@ import type { ScheduledTaskRow } from "../scheduler/index.js";
  * Tools that produce structured data for client-side component rendering.
  * The agent calls these tools; the frontend maps tool names → React components.
  */
-export function makeUITools(db: Database, address?: string) {
+export function makeUITools(db: Database, address?: string, sessionCredentials?: SessionCredentials) {
   const integrationIds = listIntegrations().map((i) => i.id);
 
   return {
@@ -30,8 +31,14 @@ export function makeUITools(db: Database, address?: string) {
       }),
       execute: async ({ integrationId, reason }) => {
         const rows = await getEnabledIntegrations(db);
-        const enabled = rows.some((r) => r.integration_id === integrationId);
-        if (enabled) {
+        const enabledInDb = rows.some((r) => r.integration_id === integrationId);
+        const hasCredentials = !!(sessionCredentials?.[integrationId]);
+
+        // Only report "already_enabled" if the integration is enabled AND
+        // we actually have credentials in the session. If the session expired
+        // or the server restarted, credentials may be gone even though the
+        // DB still says "enabled" — in that case, prompt for re-auth.
+        if (enabledInDb && hasCredentials) {
           return { type: "already_enabled" as const, integrationId };
         }
         const definition = listIntegrations().find((i) => i.id === integrationId);
@@ -39,7 +46,9 @@ export function makeUITools(db: Database, address?: string) {
           type: "oauth_prompt" as const,
           integrationId,
           name: definition?.name ?? integrationId,
-          reason,
+          reason: enabledInDb
+            ? `${reason} (session expired — please re-authorize)`
+            : reason,
           oauthUrl: `/api/integrations/oauth/${integrationId}/start`,
         };
       },
