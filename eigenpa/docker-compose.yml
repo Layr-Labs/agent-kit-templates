@@ -1,0 +1,13 @@
+services:
+  eigenpa:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - /mnt/disks/userdata:/mnt/disks/userdata
+    environment:
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VOYAGEAI_API_KEY=${VOYAGEAI_API_KEY}
+      - VITE_WC_PROJECT_ID=${VITE_WC_PROJECT_ID}
+      - DATA_DIR=/mnt/disks/userdata

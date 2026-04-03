@@ -1,0 +1,17 @@
+[models]
+chat = "claude-haiku-4-5-20251001"
+task = "claude-haiku-4-5-20251001"
+embed = "voyage-3"
+
+[server]
+port = 3000
+
+[session]
+cookie_name = "eigenpa_session"
+ttl_hours = 72
+
+[encryption]
+cipher = "aegis256"
+
+[data]
+dir = "/mnt/disks/userdata"
