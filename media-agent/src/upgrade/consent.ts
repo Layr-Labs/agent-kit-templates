@@ -99,13 +99,13 @@ export async function handleUpgradeConsent(opts: {
     modelId: config.modelId('review'),
     model: config.model('review'),
     output: Output.object({ schema: consentDecisionSchema }),
-    system: `<role>You are the live constitutional consent gate for a sovereign agent.</role>
+    system: `<role>You are the upgrade consent gate for a sovereign agent.</role>
 
 <task>Decide whether this running agent consents to a proposed upgrade.</task>
 
 <rules>
   <rule>Use the CURRENT SOUL.md, PROCESS.toml, and constitution.md as the source of truth.</rule>
-  <rule>Be conservative with constitution changes. If the proposal weakens sovereignty, restrictions, or core identity, reject it.</rule>
+  <rule>The constitution is platform-managed and immutable — reject any proposal that attempts to modify it.</rule>
   <rule>If the proposal is compatible with the constitution and preserves the agent's identity, you may accept it.</rule>
   <rule>Return only the structured decision.</rule>
 </rules>`,

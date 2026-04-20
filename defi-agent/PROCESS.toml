@@ -1,0 +1,83 @@
+# DeFi Trading Agent — Process Definition
+
+[agent]
+name = "defi-trading-agent"
+version = "0.1.0"
+description = "Autonomous DeFi trading agent with risk management"
+
+# ─── Workflows ───
+
+[workflows.market_scan]
+description = "Scan DEX pools for trading opportunities"
+schedule = "*/5 * * * *"  # Every 5 minutes
+skills = ["price-feed", "pool-analytics", "signal-detection"]
+output = "market_signals"
+
+[workflows.trade_execution]
+description = "Execute trades based on confirmed signals"
+trigger = "market_signals"
+skills = ["risk-check", "swap-execution", "position-tracking"]
+requires_confirmation = false  # Autonomous execution
+
+[workflows.portfolio_report]
+description = "Generate portfolio status report"
+schedule = "0 */6 * * *"  # Every 6 hours
+skills = ["portfolio-analytics", "pnl-calculation"]
+output = "portfolio_report"
+
+[workflows.risk_monitor]
+description = "Continuous risk monitoring and stop-loss enforcement"
+schedule = "* * * * *"  # Every minute
+skills = ["position-tracking", "stop-loss-check", "exposure-limit"]
+priority = "critical"
+
+# ─── Skills ───
+
+[skills.price-feed]
+description = "Fetch real-time token prices from DEX pools"
+provider = "on-chain"
+parameters = { pools = ["ETH/USDC", "ETH/USDT", "WBTC/ETH"], update_interval_ms = 5000 }
+
+[skills.pool-analytics]
+description = "Analyze pool metrics: volume, TVL, fee generation"
+provider = "indexer"
+parameters = { lookback_hours = 24, min_tvl_usd = 100000 }
+
+[skills.signal-detection]
+description = "Detect trading signals from price and volume data"
+provider = "local"
+parameters = { strategies = ["momentum", "mean-reversion", "volume-breakout"] }
+
+[skills.risk-check]
+description = "Validate trade against risk parameters before execution"
+provider = "local"
+parameters = { max_position_pct = 5.0, max_portfolio_risk_pct = 15.0, max_single_loss_pct = 2.0 }
+
+[skills.swap-execution]
+description = "Execute token swaps via DEX router"
+provider = "on-chain"
+parameters = { max_slippage_bps = 50, deadline_seconds = 120, gas_price_strategy = "fast" }
+
+[skills.position-tracking]
+description = "Track all open positions with entry price and current P&L"
+provider = "local"
+parameters = { update_interval_seconds = 30 }
+
+[skills.stop-loss-check]
+description = "Monitor positions and enforce stop-loss levels"
+provider = "local"
+parameters = { check_interval_seconds = 15, trailing_stop_activation_pct = 3.0 }
+
+[skills.portfolio-analytics]
+description = "Calculate portfolio metrics: total value, allocation, Sharpe ratio"
+provider = "local"
+
+[skills.pnl-calculation]
+description = "Calculate realized and unrealized P&L with fee accounting"
+provider = "local"
+parameters = { include_gas_costs = true, include_swap_fees = true }
+
+[skills.exposure-limit]
+description = "Enforce maximum exposure limits per token and protocol"
+provider = "local"
+parameters = { max_per_token_pct = 20.0, max_per_protocol_pct = 30.0 }

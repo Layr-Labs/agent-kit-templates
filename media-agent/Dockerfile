@@ -80,6 +80,10 @@ ENV CHROME_PATH=/usr/bin/google-chrome-stable
 COPY package.json package-lock.json bun.lock* ./
 RUN npm ci --include=optional --legacy-peer-deps
 
+# ── Build-time git metadata (passed via --build-arg) ─────────────────────
+ARG GIT_COMMIT=""
+ARG REPO_URL=""
+
 # ── App source + config ──────────────────────────────────────────────────
 COPY site/ site/
 COPY src/ src/
@@ -95,5 +99,7 @@ EXPOSE 3000 6080
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV REPO_URL=${REPO_URL}
 
 CMD ["/entrypoint.sh"]

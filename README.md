@@ -7,6 +7,7 @@ Starter templates for building autonomous agents with [Agent Kit](https://github
 | Template | Description | Status |
 |---|---|---|
 | `media-agent/` | Constitution-driven autonomous media agent | Included |
+| `defi-agent/` | DeFi trading agent with risk management and DEX execution | Included |
 
 ## How It Works
 
